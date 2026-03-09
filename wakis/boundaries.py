@@ -217,44 +217,60 @@ class BCsMixin:
         used to absorb outgoing waves and reduce reflections at domain edges.
         """
 
-        # Initialize
+        # Initialize PML parameters
+        kappa_max = 20     # PML scaling factor, controls the impedance matching of the PML (higher is better but may require stronger conductivity)
+        alpha = 0.05   # PML alpha parameter, controls the low-frequency absorption of the PML (higher is better but may require stronger conductivity)
+        R0 = 1.0e-8        # Reflection coefficient at the interface between the PML and the main domain, controls how well the PML absorbs waves (lower is better but may require stronger conductivity)
+        pml_exp = 3
+        eta_0 = 376.730313412    
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
-        # pml_exp = 2
-        self.pml_lo = 5.0e-3
-        self.pml_hi = 10.0
-        self.pml_func = np.geomspace
-        self.pml_eps_r = 1.0
+        self.kappa = (
+            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
+        )
+        self.alpha = (
+            Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        )
+        self.pml_mask = np.ones((self.Nx,self.Ny,self.Nz), dtype=bool)
+        #self.alpha_mask = np.zeros((self.Nx,self.Ny,self.Nz), dtype=bool)
 
         # Fill
         if self.bc_low[0].lower() == "pml":
-            # sx[0:self.n_pml] = eps_0/(2*self.dt)*((self.x[self.n_pml] - self.x[:self.n_pml])/(self.n_pml*self.dx))**pml_exp
-            sx[0 : self.n_pml] = self.pml_func(
-                self.pml_hi, self.pml_lo, self.n_pml
-            )
+            interface = self.x[self.n_pml]
+            L = interface - self.x[0]
+            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(self.n_pml):
+                dist = interface - self.x[i]   # distance into PML
+                sx[i] = (dist / L)**pml_exp
+
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the yz plane
                 ieps_0_pml = self.ieps[
-                    self.n_pml + 1, self.Ny // 2, self.Nz // 2, d
+                    self.n_pml, self.Ny // 2, self.Nz // 2, d
                 ]
                 sigma_0_pml = self.sigma[
-                    self.n_pml + 1, self.Ny // 2, self.Nz // 2, d
+                    self.n_pml, self.Ny // 2, self.Nz // 2, d
                 ]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
                 for i in range(self.n_pml):
                     self.ieps[i, :, :, d] = ieps_0_pml
                     self.sigma[i, :, :, d] = (
-                        sigma_0_pml + sigma_mult_pml * sx[i]
+                        sigma_0_pml + (sigma_max - sigma_0_pml) * sx[i]
                     )
-                    # if sx[i] > 0 : self.ieps[i, :, :, d] = 1/(eps_0+sx[i]*(2*self.dt))
+                    self.kappa[i, :, :, d] = (
+                        1 + (kappa_max - 1) * sx[i]
+                    )
+                    self.alpha[i, :, :, d] = alpha
+                self.pml_mask[:self.n_pml, :, :] = False
 
         if self.bc_low[1].lower() == "pml":
-            # sy[0:self.n_pml] = 1/(2*self.dt)*((self.y[self.n_pml] - self.y[:self.n_pml])/(self.n_pml*self.dy))**pml_exp
-            sy[0 : self.n_pml] = self.pml_func(
-                self.pml_hi, self.pml_lo, self.n_pml
-            )
+            interface = self.y[self.n_pml]
+            L = interface - self.y[0]
+            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+
+            for i in range(self.n_pml):
+                dist = interface - self.y[i]   # distance into PML
+                sy[i] = (dist / L)**pml_exp
+
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xz plane
@@ -264,21 +280,26 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, self.n_pml + 1, self.Nz // 2, d
                 ]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
                 for j in range(self.n_pml):
                     self.ieps[:, j, :, d] = ieps_0_pml
                     self.sigma[:, j, :, d] = (
-                        sigma_0_pml + sigma_mult_pml * sy[j]
+                        sigma_0_pml + (sigma_max - sigma_0_pml) * sy[j]
                     )
-                    # if sy[j] > 0 : self.ieps[:, j, :, d] = 1/(eps_0+sy[j]*(2*self.dt))
+                    self.kappa[:, j, :, d] = (
+                        1 + (kappa_max - 1) * sy[j]
+                    )
+                    self.alpha[:, j, :, d] = alpha
+                self.pml_mask[:, :self.n_pml, :] = False                    
 
         if self.bc_low[2].lower() == "pml":
-            # sz[0:self.n_pml] = eps_0/(2*self.dt)*((self.z[self.n_pml] - self.z[:self.n_pml])/(self.n_pml*self.dz))**pml_exp
-            sz[0 : self.n_pml] = self.pml_func(
-                self.pml_hi, self.pml_lo, self.n_pml
-            )
+            interface = self.z[self.n_pml]
+            L = interface - self.z[0]
+            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+
+            for i in range(self.n_pml):
+                dist = interface - self.z[i]   # distance into PML
+                sz[i] = (dist / L)**pml_exp
+
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xy plane
@@ -288,21 +309,26 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
                 ]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
                 for k in range(self.n_pml):
                     self.ieps[:, :, k, d] = ieps_0_pml
                     self.sigma[:, :, k, d] = (
-                        sigma_0_pml + sigma_mult_pml * sz[k]
+                        sigma_0_pml + (sigma_max - sigma_0_pml) * sz[k]
                     )
-                    # if sz[k] > 0. : self.ieps[:, :, k, d] = 1/(np.mean(sz[:self.n_pml])*eps_0)
+                    self.kappa[:, :, k, d] = (
+                        1 + (kappa_max - 1) * sz[k]
+                    )
+                    self.alpha[:, :, k, d] = alpha
+                self.pml_mask[:,:,:self.n_pml] = False                     
 
         if self.bc_high[0].lower() == "pml":
-            # sx[-self.n_pml:] = 1/(2*self.dt)*((self.x[-self.n_pml:] - self.x[-self.n_pml])/(self.n_pml*self.dx))**pml_exp
-            sx[-self.n_pml :] = self.pml_func(
-                self.pml_lo, self.pml_hi, self.n_pml
-            )
+            interface = self.x[-1-self.n_pml]
+            L = self.x[-1] - interface
+            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+
+            for i in range(self.n_pml):
+                dist = self.x[-self.n_pml+i] - interface   # distance into PML
+                sx[-self.n_pml+i] = (dist / L)**pml_exp
+            
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the yz plane
@@ -312,22 +338,27 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d
                 ]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
                 for i in range(self.n_pml):
                     i += 1
                     self.ieps[-i, :, :, d] = ieps_0_pml
                     self.sigma[-i, :, :, d] = (
-                        sigma_0_pml + sigma_mult_pml * sx[-i]
+                        sigma_0_pml + (sigma_max - sigma_0_pml) * sx[-i]
                     )
-                    # if sx[-i] > 0 : self.ieps[-i, :, :, d] = 1/(eps_0+sx[-i]*(2*self.dt))
+                    self.kappa[-i, :, :, d] = (
+                        1 + (kappa_max - 1) * sx[-i]
+                    )
+                    self.alpha[-i, :, :, d] = alpha
+                self.pml_mask[-self.n_pml:, :, :] = False                    
 
         if self.bc_high[1].lower() == "pml":
-            # sy[-self.n_pml:] = 1/(2*self.dt)*((self.y[-self.n_pml:] - self.y[-self.n_pml])/(self.n_pml*self.dy))**pml_exp
-            sy[-self.n_pml :] = self.pml_func(
-                self.pml_lo, self.pml_hi, self.n_pml
-            )
+            interface = self.y[-1-self.n_pml]
+            L = self.y[-1] - interface
+            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+
+            for i in range(self.n_pml):
+                dist = self.y[-self.n_pml+i] - interface   # distance into PML
+                sy[-self.n_pml+i] = (dist / L)**pml_exp
+            
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xz plane
@@ -337,22 +368,27 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d
                 ]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
                 for j in range(self.n_pml):
                     j += 1
                     self.ieps[:, -j, :, d] = ieps_0_pml
                     self.sigma[:, -j, :, d] = (
-                        sigma_0_pml + sigma_mult_pml * sy[-j]
+                        sigma_0_pml + (sigma_max - sigma_0_pml) * sy[-j]
                     )
-                    # if sy[-j] > 0 : self.ieps[:, -j, :, d] = 1/(eps_0+sy[-j]*(2*self.dt))
+                    self.kappa[:, -j, :, d] = (
+                        1 + (kappa_max - 1) * sy[-j]
+                    )
+                    self.alpha[:, -j, :, d] = alpha
+                self.pml_mask[:,-self.n_pml:,:] = False 
 
         if self.bc_high[2].lower() == "pml":
-            # sz[-self.n_pml:] = eps_0/(2*self.dt)*((self.z[-self.n_pml:] - self.z[-self.n_pml])/(self.n_pml*self.dz))**pml_exp
-            sz[-self.n_pml :] = self.pml_func(
-                self.pml_lo, self.pml_hi, self.n_pml
-            )
+            interface = self.z[-1-self.n_pml]
+            L = self.z[-1] - interface
+            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+
+            for i in range(self.n_pml):
+                dist = self.z[-self.n_pml+i] - interface   # distance into PML
+                sz[-self.n_pml+i] = (dist / L)**pml_exp
+
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xy plane
@@ -362,16 +398,20 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
                 ]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
                 for k in range(self.n_pml):
                     k += 1
                     self.ieps[:, :, -k, d] = ieps_0_pml
                     self.sigma[:, :, -k, d] = (
-                        sigma_0_pml + sigma_mult_pml * sz[-k]
+                        sigma_0_pml + (sigma_max - sigma_0_pml) * sz[-k]
                     )
-                    # self.ieps[:, :, -k, d] = 1/(np.mean(sz[-self.n_pml:])*eps_0)
+                    self.kappa[:, :, -k, d] = (
+                        1 + (kappa_max - 1) * sz[-k]
+                    )
+                    self.alpha[:, :, -k, d] = alpha
+                self.pml_mask[:,:,-self.n_pml:] = False
+
+        #if alpha != 0:
+            #self.alpha_mask = self.pml_mask             
 
     def get_abc(self):
         """

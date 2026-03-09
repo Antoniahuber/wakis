@@ -3,6 +3,7 @@
 # Copyright (c) CERN, 2024.                   #
 # ########################################### #
 
+import abc
 import time
 
 import h5py
@@ -319,6 +320,51 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
 
+        # Scale the material tensors in the PML region according to the kappa profile and precompute the PML update coefficients b and c
+        if self.activate_pml:
+            self.iDkappa = diags(
+                (1.0 / self.kappa.toarray()), shape=(3 * N, 3 * N), dtype=self.dtype
+            )
+            self.Dalpha = diags(
+                self.alpha.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+            )
+            self.Ds = self.iDkappa * self.Ds
+            self.tDs = self.iDkappa * self.tDs
+            # self.pml_b = (
+            # Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+            # )
+            # self.pml_c = (
+            # Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+            # )
+            # self.pml_b.fromarray(np.exp(
+            #     -(self.sigma.toarray() *  self.kappa.toarray() + self.alpha.toarray())
+            #     * self.dt
+            #     / eps_0
+            # )
+            # )
+            # self.pml_c.toarray()[self.alpha_mask] = (
+            #     self.sigma.toarray() / (self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()) * (self.pml_b - 1)
+            # )
+            # self.psi_E = Field(
+            #     self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            # )
+            # self.psi_H = Field(
+            #     self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            # )
+
+            # self.curlE = self.iDa * self.C * self.Ds
+            # self.curlH = self.itDa * self.C.transpose() * self.tDs
+            
+            # diag_1 = diags([1], [0], shape=(N, N))
+            # self.psiCurl = vstack(
+            #     [
+            #     hstack([sparse_mat((N, N)), diag_1, -diag_1]),
+            #     hstack([-diag_1, sparse_mat((N, N)), diag_1]),
+            #     hstack([diag_1, -diag_1, sparse_mat((N, N))]),
+            # ], 
+            # dtype=np.int8,
+            # )
+
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = (
             self.iDeps * self.itDa * self.C.transpose() * self.tDs
@@ -424,6 +470,36 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
 
+        # if self.activate_pml:
+        #     self.H.fromarray(
+        #         self.H.toarray()
+        #         -self.dt
+        #         * (self.tDsiDmuiDaC
+        #         * self.E.toarray()
+        #         + self.psiCurl * self.psi_H.toarray())
+        #     )
+
+        #     self.psi_H.fromarray(
+        #         self.pml_b * self.psi_H.toarray() + self.pml_c * (self.curlE * self.E.toarray())
+        #     )
+
+        #     self.E.fromarray(
+        #         self.E.toarray()
+        #         + self.dt
+        #         * (
+        #             self.itDaiDepsDstC * self.H.toarray()
+        #             + self.psiCurl * self.psi_E.toarray()
+        #             - self.ieps.toarray() * self.J.toarray()
+        #         )
+        #     )           
+
+        #     self.psi_E.fromarray(
+        #         self.pml_b * self.psi_E.toarray() + self.pml_c * (self.curlH * self.H.toarray())
+        #     )
+
+        #     self.J.fromarray(self.pml_mask.toarray() [self.pml_mask] * self.E.toarray())
+
+        #else:
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
         )
@@ -439,7 +515,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            self.J.fromarray(self.pml_mask.toarray() * self.E.toarray())
 
     def _one_step_mkl(self):
         if self.step_0:
