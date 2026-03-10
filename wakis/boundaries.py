@@ -218,8 +218,6 @@ class BCsMixin:
         """
 
         # Initialize PML parameters
-        kappa_max = 20     # PML scaling factor, controls the impedance matching of the PML (higher is better but may require stronger conductivity)
-        alpha = 0.05   # PML alpha parameter, controls the low-frequency absorption of the PML (higher is better but may require stronger conductivity)
         R0 = 1.0e-8        # Reflection coefficient at the interface between the PML and the main domain, controls how well the PML absorbs waves (lower is better but may require stronger conductivity)
         pml_exp = 3
         eta_0 = 376.730313412    
@@ -230,8 +228,9 @@ class BCsMixin:
         self.alpha = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
         )
-        self.pml_mask = np.ones((self.Nx,self.Ny,self.Nz), dtype=bool)
-        #self.alpha_mask = np.zeros((self.Nx,self.Ny,self.Nz), dtype=bool)
+        self.alpha_mask = (
+            Field(self.Nx, self.Ny, self.Nz, dtype=bool)
+        )
 
         # Fill
         if self.bc_low[0].lower() == "pml":
@@ -257,10 +256,11 @@ class BCsMixin:
                         sigma_0_pml + (sigma_max - sigma_0_pml) * sx[i]
                     )
                     self.kappa[i, :, :, d] = (
-                        1 + (kappa_max - 1) * sx[i]
+                        1 + (self.kappa_max - 1) * sx[i]
                     )
-                    self.alpha[i, :, :, d] = alpha
-                self.pml_mask[:self.n_pml, :, :] = False
+                    self.alpha[i, :, :, d] = self.alpha_max
+                    if self.alpha_max != 0:
+                        self.alpha_mask[i, :, :, d] = True
 
         if self.bc_low[1].lower() == "pml":
             interface = self.y[self.n_pml]
@@ -286,10 +286,11 @@ class BCsMixin:
                         sigma_0_pml + (sigma_max - sigma_0_pml) * sy[j]
                     )
                     self.kappa[:, j, :, d] = (
-                        1 + (kappa_max - 1) * sy[j]
+                        1 + (self.kappa_max - 1) * sy[j]
                     )
-                    self.alpha[:, j, :, d] = alpha
-                self.pml_mask[:, :self.n_pml, :] = False                    
+                    self.alpha[:, j, :, d] = self.alpha_max
+                    if self.alpha_max != 0:
+                        self.alpha_mask[:, j, :, d] = True                    
 
         if self.bc_low[2].lower() == "pml":
             interface = self.z[self.n_pml]
@@ -315,10 +316,11 @@ class BCsMixin:
                         sigma_0_pml + (sigma_max - sigma_0_pml) * sz[k]
                     )
                     self.kappa[:, :, k, d] = (
-                        1 + (kappa_max - 1) * sz[k]
+                        1 + (self.kappa_max - 1) * sz[k]
                     )
-                    self.alpha[:, :, k, d] = alpha
-                self.pml_mask[:,:,:self.n_pml] = False                     
+                    self.alpha[:, :, k, d] = self.alpha_max
+                    if self.alpha_max != 0:
+                        self.alpha_mask[:, :, k, d] = True                     
 
         if self.bc_high[0].lower() == "pml":
             interface = self.x[-1-self.n_pml]
@@ -345,10 +347,11 @@ class BCsMixin:
                         sigma_0_pml + (sigma_max - sigma_0_pml) * sx[-i]
                     )
                     self.kappa[-i, :, :, d] = (
-                        1 + (kappa_max - 1) * sx[-i]
+                        1 + (self.kappa_max - 1) * sx[-i]
                     )
-                    self.alpha[-i, :, :, d] = alpha
-                self.pml_mask[-self.n_pml:, :, :] = False                    
+                    self.alpha[-i, :, :, d] = self.alpha_max
+                    if self.alpha_max != 0:
+                        self.alpha_mask[-i, :, :, d] = True                    
 
         if self.bc_high[1].lower() == "pml":
             interface = self.y[-1-self.n_pml]
@@ -375,10 +378,11 @@ class BCsMixin:
                         sigma_0_pml + (sigma_max - sigma_0_pml) * sy[-j]
                     )
                     self.kappa[:, -j, :, d] = (
-                        1 + (kappa_max - 1) * sy[-j]
+                        1 + (self.kappa_max - 1) * sy[-j]
                     )
-                    self.alpha[:, -j, :, d] = alpha
-                self.pml_mask[:,-self.n_pml:,:] = False 
+                    self.alpha[:, -j, :, d] = self.alpha_max
+                    if self.alpha_max != 0:
+                        self.alpha_mask[:, -j, :, d] = True 
 
         if self.bc_high[2].lower() == "pml":
             interface = self.z[-1-self.n_pml]
@@ -405,13 +409,11 @@ class BCsMixin:
                         sigma_0_pml + (sigma_max - sigma_0_pml) * sz[-k]
                     )
                     self.kappa[:, :, -k, d] = (
-                        1 + (kappa_max - 1) * sz[-k]
+                        1 + (self.kappa_max - 1) * sz[-k]
                     )
-                    self.alpha[:, :, -k, d] = alpha
-                self.pml_mask[:,:,-self.n_pml:] = False
-
-        #if alpha != 0:
-            #self.alpha_mask = self.pml_mask             
+                    self.alpha[:, :, -k, d] = self.alpha_max
+                    if self.alpha_max != 0:
+                        self.alpha_mask[:, :, -k, d] = True            
 
     def get_abc(self):
         """

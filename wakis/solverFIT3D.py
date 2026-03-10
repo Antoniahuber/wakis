@@ -54,6 +54,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         n_pml=10,
         bg=[1.0, 1.0],
         verbose=1,
+        kappa_max=5,
+        alpha_max=0.05,
     ):
         """
         3D time-domain electromagnetic solver based on the Finite Integration
@@ -273,8 +275,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             if verbose:
                 print("Filling PML sigmas...")
             self.n_pml = n_pml
+            self.kappa_max = kappa_max
+            self.alpha_max = alpha_max
             self._initialize_PML()
-            self.update_logger(["n_pml"])
+            self.update_logger(["n_pml", "kappa_max", "alpha_max"])
 
         # Timestep calculation
         if verbose:
@@ -292,7 +296,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         else:
             self.dt = dt
         self.dt = self.dtype(self.dt)
-        self.update_logger(["dt"])
 
         if self.use_conductivity:  # relaxation time criterion tau
             mask = np.logical_and(
@@ -305,7 +308,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             ]
 
             if self.dt > self.tau.min():
-                self.dt = self.tau.min()
+                self.dt = self.tau.min()\
+                
+        self.update_logger(["dt"])
 
         # Pre-computing
         if verbose:
@@ -325,45 +330,49 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.iDkappa = diags(
                 (1.0 / self.kappa.toarray()), shape=(3 * N, 3 * N), dtype=self.dtype
             )
-            self.Dalpha = diags(
-                self.alpha.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
-            )
             self.Ds = self.iDkappa * self.Ds
             self.tDs = self.iDkappa * self.tDs
-            # self.pml_b = (
-            # Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
-            # )
-            # self.pml_c = (
-            # Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
-            # )
-            # self.pml_b.fromarray(np.exp(
-            #     -(self.sigma.toarray() *  self.kappa.toarray() + self.alpha.toarray())
-            #     * self.dt
-            #     / eps_0
-            # )
-            # )
-            # self.pml_c.toarray()[self.alpha_mask] = (
-            #     self.sigma.toarray() / (self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()) * (self.pml_b - 1)
-            # )
-            # self.psi_E = Field(
-            #     self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
-            # )
-            # self.psi_H = Field(
-            #     self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
-            # )
+            self.pml_b = (
+            Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+            )
+            self.pml_c = (
+            Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+            )
+            oneField = Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype).toarray()
+            self.pml_b.fromarray(np.exp(
+                -(self.sigma.toarray() *  1.0 / self.kappa.toarray() + self.alpha.toarray())
+                * self.dt/ eps_0
+            ))
+            self.pml_c.toarray()[self.alpha_mask.toarray()] = (
+                self.sigma.toarray() / (self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()) * (self.pml_b.toarray() - oneField) # one kappa is missing because the update equation is already scaled with 1/kappa in the curl operators
+            )[self.alpha_mask.toarray()]
+            self.psi_E = Field(
+                self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            )
+            self.psi_H = Field(
+                self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            )
+            self.Dif = vstack(
+            [
+                hstack([sparse_mat((N, N)), sparse_mat((N, N)), self.Py]),
+                hstack([self.Pz, sparse_mat((N, N)), sparse_mat((N, N))]),
+                hstack([sparse_mat((N, N)), self.Px, sparse_mat((N, N))]),
+            ],
+            dtype=np.int8,
+            )
+            self.curlE = self.Dif * self.Ds
+            self.curlH = self.Dif.transpose() * self.tDs
 
-            # self.curlE = self.iDa * self.C * self.Ds
-            # self.curlH = self.itDa * self.C.transpose() * self.tDs
-            
-            # diag_1 = diags([1], [0], shape=(N, N))
-            # self.psiCurl = vstack(
-            #     [
-            #     hstack([sparse_mat((N, N)), diag_1, -diag_1]),
-            #     hstack([-diag_1, sparse_mat((N, N)), diag_1]),
-            #     hstack([diag_1, -diag_1, sparse_mat((N, N))]),
-            # ], 
-            # dtype=np.int8,
-            # )
+            self.diag_1 = diags([1], [0], shape=(N, N), dtype=np.int8)
+
+            self.psiDif = vstack(
+                [
+                hstack([sparse_mat((N, N)), self.diag_1, -self.diag_1]),
+                hstack([-self.diag_1, sparse_mat((N, N)), self.diag_1]),
+                hstack([self.diag_1, -self.diag_1, sparse_mat((N, N))]),
+            ], 
+            dtype=np.int8,
+            )
 
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = (
@@ -395,9 +404,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if verbose:
             print(f"Total solver initialization time: {time.time() - t0} s")
-
-        self.solverInitializationTime = time.time() - t0
-        self.update_logger(["solverInitializationTime"])
 
         self.solverInitializationTime = time.time() - t0
         self.update_logger(["solverInitializationTime"])
@@ -470,52 +476,53 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
 
-        # if self.activate_pml:
-        #     self.H.fromarray(
-        #         self.H.toarray()
-        #         -self.dt
-        #         * (self.tDsiDmuiDaC
-        #         * self.E.toarray()
-        #         + self.psiCurl * self.psi_H.toarray())
-        #     )
+        if self.activate_pml:
 
-        #     self.psi_H.fromarray(
-        #         self.pml_b * self.psi_H.toarray() + self.pml_c * (self.curlE * self.E.toarray())
-        #     )
-
-        #     self.E.fromarray(
-        #         self.E.toarray()
-        #         + self.dt
-        #         * (
-        #             self.itDaiDepsDstC * self.H.toarray()
-        #             + self.psiCurl * self.psi_E.toarray()
-        #             - self.ieps.toarray() * self.J.toarray()
-        #         )
-        #     )           
-
-        #     self.psi_E.fromarray(
-        #         self.pml_b * self.psi_E.toarray() + self.pml_c * (self.curlH * self.H.toarray())
-        #     )
-
-        #     self.J.fromarray(self.pml_mask.toarray() [self.pml_mask] * self.E.toarray())
-
-        #else:
-        self.H.fromarray(
-            self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
-        )
-
-        self.E.fromarray(
-            self.E.toarray()
-            + self.dt
-            * (
-                self.itDaiDepsDstC * self.H.toarray()
-                - self.ieps.toarray() * self.J.toarray()
+            self.H.fromarray(
+                self.H.toarray()
+                -self.dt
+                * (self.tDsiDmuiDaC * self.E.toarray()
+                + self.psiDif * self.psi_H.toarray()
+               )
             )
-        )
 
-        # include current computation
-        if self.use_conductivity:
-            self.J.fromarray(self.pml_mask.toarray() * self.E.toarray())
+            self.psi_H.fromarray(
+                self.pml_b.toarray() * self.psi_H.toarray() + self.pml_c.toarray() * (self.curlE * self.E.toarray())
+            )  
+
+            self.E.fromarray(
+                self.E.toarray()
+                + self.dt
+                * (
+                    self.itDaiDepsDstC * self.H.toarray()
+                    + self.psiDif * self.psi_E.toarray()
+                    - self.ieps.toarray() * self.J.toarray()
+                )
+            )           
+
+            self.psi_E.fromarray(
+                self.pml_b.toarray() * self.psi_E.toarray() + self.pml_c.toarray() * (self.curlH * self.H.toarray())
+            )
+
+            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+
+        else:
+            self.H.fromarray(
+                self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
+            )
+
+            self.E.fromarray(
+                self.E.toarray()
+                + self.dt
+                * (
+                    self.itDaiDepsDstC * self.H.toarray()
+                    - self.ieps.toarray() * self.J.toarray()
+                )
+            )
+
+            # include current computation
+            if self.use_conductivity:
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
 
     def _one_step_mkl(self):
         if self.step_0:
@@ -969,11 +976,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if hasattr(self, "BC"):
             del self.BC
             del self.Dbc
+        if self.activate_pml:
+           del self.alpha_mask
+           del self.kappa
+           del self.alpha
 
         # Matrices
         del self.Px, self.Py, self.Pz
         del self.Ds, self.iDa, self.tDs, self.itDa
         del self.C
+        if self.activate_pml:
+            del self.iDkappa
+            del self.diag_1
+            del self.Dif
 
     def save_state(self, filename="solver_state.h5", close=True):
         """
