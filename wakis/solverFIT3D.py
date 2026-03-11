@@ -343,9 +343,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 -(self.sigma.toarray() *  1.0 / self.kappa.toarray() + self.alpha.toarray())
                 * self.dt/ eps_0
             ))
+            self.bx = self.pml_b.field_x
+            self.by = self.pml_b.field_y
+            self.bz = self.pml_b.field_z
+
             self.pml_c.toarray()[self.alpha_mask.toarray()] = (
                 self.sigma.toarray() / (self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()) * (self.pml_b.toarray() - oneField) # one kappa is missing because the update equation is already scaled with 1/kappa in the curl operators
             )[self.alpha_mask.toarray()]
+            self.cx = self.pml_c.field_x
+            self.cy = self.pml_c.field_y
+            self.cz = self.pml_c.field_z
+
             self.psi_E = Field(
                 self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
             )
@@ -373,6 +381,28 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             ], 
             dtype=np.int8,
             )
+            self.Ecurl = Field(
+                self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            )
+            self.Hcurl = Field(
+                self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            )
+            self.epsJ = Field(
+                self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype
+            )
+
+            self.psiHxy = 0
+            self.psiHxz = 0
+            self.psiHyx = 0
+            self.psiHyz = 0
+            self.psiHzx = 0
+            self.psiHzy = 0
+            self.psiExy = 0
+            self.psiExz = 0
+            self.psiEyx = 0
+            self.psiEyz = 0
+            self.psiEzx = 0
+            self.psiEzy = 0            
 
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = (
@@ -478,33 +508,41 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.activate_pml:
 
-            self.H.fromarray(
-                self.H.toarray()
-                -self.dt
-                * (self.tDsiDmuiDaC * self.E.toarray()
-                + self.psiDif * self.psi_H.toarray()
-               )
-            )
+            self.Ecurl.fromarray(self.tDsiDmuiDaC * self.E.toarray())
+            self.H.field_x = self.H.field_x - self.dt * (self.Ecurl.field_x + self.psiHxy - self.psiHxz)
+            self.H.field_y = self.H.field_y - self.dt * (self.Ecurl.field_y + self.psiHyz - self.psiHyx)
+            self.H.field_z = self.H.field_z - self.dt * (self.Ecurl.field_z + self.psiHzx - self.psiHzy)
 
-            self.psi_H.fromarray(
-                self.pml_b.toarray() * self.psi_H.toarray() + self.pml_c.toarray() * (self.curlE * self.E.toarray())
-            )  
+            self.psiHxy = self.by * self.psiHxy + self.cy * self.Py * self.imu.field_y * self.L.field_y * self.E.field_z
+            self.psiHyx = self.bx * self.psiHyx + self.cx * self.Px * self.imu.field_x * self.L.field_x * self.E.field_z 
+            self.psiHxz = self.bz * self.psiHxz + self.cz * self.Pz * self.imu.field_z * self.L.field_z * self.E.field_y
+            self.psiHzx = self.bx * self.psiHzx + self.cx * self.Px * self.imu.field_x * self.L.field_x * self.E.field_y
+            self.psiHyz = self.bz * self.psiHyz + self.cz * self.Pz * self.imu.field_z * self.L.field_z * self.E.field_x
+            self.psiHzy = self.by * self.psiHzy + self.cy * self.Py * self.imu.field_y * self.L.field_y * self.E.field_x
 
-            self.E.fromarray(
-                self.E.toarray()
-                + self.dt
-                * (
-                    self.itDaiDepsDstC * self.H.toarray()
-                    + self.psiDif * self.psi_E.toarray()
-                    - self.ieps.toarray() * self.J.toarray()
-                )
-            )           
+            self.Hcurl.fromarray(self.itDaiDepsDstC * self.H.toarray())
+            self.epsJ.fromarray(self.ieps.toarray() * self.J.toarray())
+            self.E.field_x = self.E.field_x + self.dt * (self.Hcurl.field_x - self.epsJ.field_x + self.psiExy - self.psiExz)
+            self.E.field_y = self.E.field_y + self.dt * (self.Hcurl.field_y - self.epsJ.field_y + self.psiEyz - self.psiEyx)
+            self.E.field_z = self.E.field_z + self.dt * (self.Hcurl.field_z - self.epsJ.field_z + self.psiEzx - self.psiEzy)      
 
-            self.psi_E.fromarray(
-                self.pml_b.toarray() * self.psi_E.toarray() + self.pml_c.toarray() * (self.curlH * self.H.toarray())
-            )
+            self.psiExy = self.by * self.psiExy + self.cy * self.Py * self.imu.field_y * self.L.field_y * self.E.field_z
+            self.psiEyx = self.bx * self.psiEyx + self.cx * self.Px * self.imu.field_x * self.L.field_x * self.E.field_z
+            self.psiExz = self.bz * self.psiExz + self.cz * self.Pz * self.imu.field_z * self.L.field_z * self.E.field_y
+            self.psiEzx = self.bx * self.psiEzx + self.cx * self.Px * self.imu.field_x * self.L.field_x * self.E.field_y
+            self.psiEyz = self.bz * self.psiEyz + self.cz * self.Pz * self.imu.field_z * self.L.field_z * self.E.field_x
+            self.psiEzy = self.by * self.psiEzy + self.cy * self.Py * self.imu.field_y * self.L.field_y * self.E.field_x
 
             self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+
+        elif self.cpml:
+            self.H.field_x[self.alpha_mask.field_x] = self.H.field_x[self.alpha_mask.field_x] - self.dt * self.psiHxy[self.alpha_mask.field_x] - self.psiHxz[self.alpha_mask.field_x]
+            self.H.field_y[self.alpha_mask.field_y] = self.H.field_y[self.alpha_mask.field_y] - self.dt * self.psiHyz[self.alpha_mask.field_y] - self.psiHyx[self.alpha_mask.field_y]
+            self.H.field_z[self.alpha_mask.field_z] = self.H.field_z[self.alpha_mask.field_z] - self.dt * self.psiHzx[self.alpha_mask.field_z] - self.psiHzy[self.alpha_mask.field_z]
+
+            self.E.field_x[self.alpha_mask.field_x] = self.H.field_x[self.alpha_mask.field_x] - self.dt * self.psiHxy[self.alpha_mask.field_x] - self.psiHxz[self.alpha_mask.field_x]
+            self.E.field_y[self.alpha_mask.field_y] = self.H.field_y[self.alpha_mask.field_y] - self.dt * self.psiHyz[self.alpha_mask.field_y] - self.psiHyx[self.alpha_mask.field_y]
+            self.H.field_z[self.alpha_mask.field_z] = self.H.field_z[self.alpha_mask.field_z] - self.dt * self.psiHzx[self.alpha_mask.field_z] - self.psiHzy[self.alpha_mask.field_z]                        
 
         else:
             self.H.fromarray(
@@ -972,23 +1010,24 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
     def _attrcleanup(self):
         # Fields
-        del self.L, self.tL, self.iA, self.itA
+        #del self.L, self.tL, self.iA, self.itA
         if hasattr(self, "BC"):
             del self.BC
             del self.Dbc
         if self.activate_pml:
-           del self.alpha_mask
+          # del self.alpha_mask
            del self.kappa
            del self.alpha
 
         # Matrices
-        del self.Px, self.Py, self.Pz
-        del self.Ds, self.iDa, self.tDs, self.itDa
-        del self.C
+        #del self.Px, self.Py, self.Pz
+        #del self.Ds, self.iDa, self.tDs, self.itDa
+        #del self.C
         if self.activate_pml:
-            del self.iDkappa
-            del self.diag_1
-            del self.Dif
+         #   del self.iDkappa
+          #  del self.diag_1
+           # del self.Dif
+            pass
 
     def save_state(self, filename="solver_state.h5", close=True):
         """
