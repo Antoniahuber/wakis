@@ -51,12 +51,15 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         use_gpu=False,
         use_mpi=False,
         dtype=np.float64,
-        n_pml=10,
+        n_pml=12,
         bg=[1.0, 1.0],
         verbose=1,
         kappa_max=5,
-        alpha_max=0.05,
-        split=False
+        alpha_max=None,
+        alpha_factor=0.1,
+        split=False,
+        sigma_factor = 1,
+        pml_exp = 3,
     ):
         """
         3D time-domain electromagnetic solver based on the Finite Integration
@@ -276,9 +279,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.activate_pml:
             if verbose:
                 print("Filling PML sigmas...")
+            self.sigma_factor = sigma_factor
+            self.pml_exp = pml_exp
             self.n_pml = n_pml
             self.kappa_max = kappa_max
             self.alpha_max = alpha_max
+            self.alpha_factor = alpha_factor
             self._initialize_PML()
             self.update_logger(["n_pml", "kappa_max", "alpha_max"])
 
@@ -327,6 +333,69 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
 
+        # Matrices for lengths and areas for split field calculations
+        if self.split or self.activate_pml:
+
+            self.tLx = diags(
+                self.tL.field_x, shape=(N, N), dtype=self.dtype
+            )
+            self.tLy = diags(
+                self.tL.field_y, shape=(N, N), dtype=self.dtype
+            )
+            self.tLz = diags(
+                self.tL.field_z, shape=(N, N), dtype=self.dtype
+            )
+            self.iAx = diags(
+                self.iA.field_x, shape=(N, N), dtype=self.dtype
+            )
+            self.iAy = diags(
+                self.iA.field_y, shape=(N, N), dtype=self.dtype
+            )
+            self.iAz = diags(
+                self.iA.field_z, shape=(N, N), dtype=self.dtype
+            )
+            self.Lx = diags(
+                self.L.field_x, shape=(N, N), dtype=self.dtype
+            )
+            self.Ly = diags(
+                self.L.field_y, shape=(N, N), dtype=self.dtype
+            )
+            self.Lz = diags(
+                self.L.field_z, shape=(N, N), dtype=self.dtype
+            )
+            self.itAx = diags(
+                self.itA.field_x, shape=(N, N), dtype=self.dtype
+            )
+            self.itAy = diags(
+                self.itA.field_y, shape=(N, N), dtype=self.dtype
+            )
+            self.itAz = diags(
+                self.itA.field_z, shape=(N, N), dtype=self.dtype
+            )
+            self.ikapx = diags(
+                1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype
+            )
+            self.ikapy = diags(
+                1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype
+            )
+            self.ikapz = diags(
+                1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
+            )
+
+            self.dxy = self.iAx * self.Py * self.Lz
+            self.dxz = self.iAx * self.Pz * self.Ly
+            self.dyz = self.iAy * self.Pz * self.Lx
+            self.dyx = self.iAy * self.Px * self.Lz
+            self.dzx = self.iAz * self.Px * self.Ly
+            self.dzy = self.iAz * self.Py * self.Lx
+
+            self.dtxy = self.itAx * -self.Py.transpose() * self.tLz
+            self.dtxz = self.itAx * -self.Pz.transpose() * self.tLy
+            self.dtyz = self.itAy * -self.Pz.transpose() * self.tLx
+            self.dtyx = self.itAy * -self.Px.transpose() * self.tLz
+            self.dtzx = self.itAz * -self.Px.transpose() * self.tLy
+            self.dtzy = self.itAz * -self.Py.transpose() * self.Lx
+
         # Scale the material tensors in the PML region according to the kappa profile and precompute the PML update coefficients b and c
         if self.activate_pml:
 
@@ -339,8 +408,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
             oneField = Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype).toarray()
             self.pml_b.fromarray(np.exp(
-                -(self.sigma.toarray() *  1.0 / self.kappa.toarray() + self.alpha.toarray())
-                * self.dt/ eps_0
+                -(self.sigma.toarray() *  1.0 / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0)
+                * self.dt
             ))
             self.bx = self.pml_b.field_x
             self.by = self.pml_b.field_y
@@ -348,8 +417,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
             self.pml_c.toarray()[self.alpha_mask.toarray()] = (
                 self.sigma.toarray() / (self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()) 
-                * (self.pml_b.toarray() - oneField) # one kappa is missing because the update equation is already scaled with 1/kappa in the curl operators
-            )[self.alpha_mask.toarray()]
+                * (self.pml_b.toarray() - oneField))[self.alpha_mask.toarray()]
             self.cx = self.pml_c.field_x
             self.cy = self.pml_c.field_y
             self.cz = self.pml_c.field_z
@@ -366,68 +434,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEyz = 0
             self.psiEzx = 0
             self.psiEzy = 0
-
-        self.tLx = diags(
-            self.tL.field_x, shape=(N, N), dtype=self.dtype
-        )
-        self.tLy = diags(
-            self.tL.field_y, shape=(N, N), dtype=self.dtype
-        )
-        self.tLz = diags(
-            self.tL.field_z, shape=(N, N), dtype=self.dtype
-        )
-        self.iAx = diags(
-            self.iA.field_x, shape=(N, N), dtype=self.dtype
-        )
-        self.iAy = diags(
-            self.iA.field_y, shape=(N, N), dtype=self.dtype
-        )
-        self.iAz = diags(
-            self.iA.field_z, shape=(N, N), dtype=self.dtype
-        )
-        self.Lx = diags(
-            self.L.field_x, shape=(N, N), dtype=self.dtype
-        )
-        self.Ly = diags(
-            self.L.field_y, shape=(N, N), dtype=self.dtype
-        )
-        self.Lz = diags(
-            self.L.field_z, shape=(N, N), dtype=self.dtype
-        )
-        self.itAx = diags(
-            self.itA.field_x, shape=(N, N), dtype=self.dtype
-        )
-        self.itAy = diags(
-            self.itA.field_y, shape=(N, N), dtype=self.dtype
-        )
-        self.itAz = diags(
-            self.itA.field_z, shape=(N, N), dtype=self.dtype
-        )
-        self.ikapx = diags(
-            1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype
-        )
-        self.ikapy = diags(
-            1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype
-        )
-        self.ikapz = diags(
-            1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
-        )
-
-        self.dxy = self.iAx * self.Py * self.Lz
-        self.dxz = self.iAx * self.Pz * self.Ly
-        self.dyz = self.iAy * self.Pz * self.Lx
-        self.dyx = self.iAy * self.Px * self.Lz
-        self.dzx = self.iAz * self.Px * self.Ly
-        self.dzy = self.iAz * self.Py * self.Lx
-
-        self.dtxy = self.itAx * -self.Py.transpose() * self.tLz
-        self.dtxz = self.itAx * -self.Pz.transpose() * self.tLy
-        self.dtyz = self.itAy * -self.Pz.transpose() * self.tLx
-        self.dtyx = self.itAy * -self.Px.transpose() * self.tLz
-        self.dtzx = self.itAz * -self.Px.transpose() * self.tLy
-        self.dtzy = self.itAz * -self.Py.transpose() * self.Lx
         
-        if self.activate_pml:
             self.dxy = self.ikapx * self.dxy
             self.dxz = self.ikapx * self.dxz
             self.dyz = self.ikapy * self.dyz
@@ -537,119 +544,101 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         )
         self.step_0 = False
 
+    # Including the convolutional terms for the CPML update equations
     def _one_step_cpml(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
     
-        # if self.activate_pml:
+        dxyEz = self.dxy @ self.E.field_z
+        dxzEy = self.dxz @ self.E.field_y
+        dyxEz = self.dyx @ self.E.field_z
+        dyzEx = self.dyz @ self.E.field_x
+        dzxEy = self.dzx @ self.E.field_y
+        dzyEx = self.dzy @ self.E.field_x
+        
+        self.psiHxy = self.by * self.psiHxy + self.cy * dxyEz
+        self.psiHxz = self.bz * self.psiHxz + self.cz * dxzEy
+        self.psiHyx = self.bx * self.psiHyx + self.cx * dyxEz
+        self.psiHyz = self.bz * self.psiHyz + self.cz * dyzEx
+        self.psiHzx = self.bx * self.psiHzx + self.cx * dzxEy
+        self.psiHzy = self.by * self.psiHzy + self.cy * dzyEx
 
-        #     self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( self.dxy @ self.E.field_z - self.dxz @ self.E.field_y)
-        #     ) - self.dt * self.imu.field_x * (self.psiHxy - self.psiHxz)
-        #     self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( self.dyz @ self.E.field_x - self.dyx @ self.E.field_z)
-        #     ) - self.dt * self.imu.field_y * (self.psiHyz - self.psiHyx)           
-        #     self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( self.dzx @ self.E.field_y - self.dzy @ self.E.field_x)
-        #     ) - self.dt * self.imu.field_z * (self.psiHzx - self.psiHzy)
+        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( dxyEz - dxzEy)
+        ) - self.dt * self.imu.field_x * (self.psiHxy - self.psiHxz)
+        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( dyzEx - dyxEz)
+        ) - self.dt * self.imu.field_y * (self.psiHyz - self.psiHyx)           
+        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( dzxEy - dzyEx)
+        ) - self.dt * self.imu.field_z * (self.psiHzx - self.psiHzy)
 
-        #     self.psiHxy = self.by * self.psiHxy + self.cy * self.dxy @ self.E.field_y
-        #     self.psiHxz = self.bz * self.psiHxz + self.cz * self.dxz @ self.E.field_z
-        #     self.psiHyx = self.bx * self.psiHyx + self.cx * self.dyx @ self.E.field_x 
-        #     self.psiHyz = self.bz * self.psiHyz + self.cz * self.dyz @ self.E.field_z
-        #     self.psiHzx = self.bx * self.psiHzx + self.cx * self.dzx @ self.E.field_x
-        #     self.psiHzy = self.by * self.psiHzy + self.cy * self.dzy @ self.E.field_y
+        dtxyHz = self.dtxy @ self.H.field_z
+        dtxzHy = self.dtxz @ self.H.field_y
+        dtyxHz = self.dtyx @ self.H.field_z
+        dtyzHx = self.dtyz @ self.H.field_x
+        dtzxHy = self.dtzx @ self.H.field_y
+        dtzyHx = self.dtzy @ self.H.field_x
 
-        #     self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( - self.dtxy @ self.H.field_z + self.dtxz @ self.H.field_y)
-        #                       - self.dt * self.ieps.field_x * self.J.field_x
-        #                       - self.dt * self.ieps.field_x * (self.psiExy - self.psiExz)
-        #     )
-        #     self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( - self.dtyz @ self.H.field_x + self.dtyx @ self.H.field_z) 
-        #                       - self.dt * self.ieps.field_y * self.J.field_y
-        #                       - self.dt * self.ieps.field_y * (self.psiEyz - self.psiEyx)
-        #                       )            
-        #     self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( - self.dtzx @ self.H.field_y + self.dtzy @ self.H.field_x) 
-        #                       - self.dt * self.ieps.field_z * self.J.field_z
-        #                       - self.dt * self.ieps.field_z * (self.psiEzx - self.psiEzy)
-        #     )
+        self.psiExy = self.by * self.psiExy + self.cy * dtxyHz
+        self.psiExz = self.bz * self.psiExz + self.cz * dtxzHy
+        self.psiEyx = self.bx * self.psiEyx + self.cx * dtyxHz
+        self.psiEyz = self.bz * self.psiEyz + self.cz * dtyzHx
+        self.psiEzx = self.bx * self.psiEzx + self.cx * dtzxHy
+        self.psiEzy = self.by * self.psiEzy + self.cy * dtzyHx
 
-        #     self.psiExy = self.by * self.psiExy + self.cy * self.dtxy @ self.H.field_y
-        #     self.psiExz = self.bz * self.psiExz + self.cz * self.dtxz @ self.H.field_z
-        #     self.psiEyx = self.bx * self.psiEyx + self.cx * self.dtyx @ self.H.field_x 
-        #     self.psiEyz = self.bz * self.psiEyz + self.cz * self.dtyz @ self.H.field_z
-        #     self.psiEzx = self.bx * self.psiEzx + self.cx * self.dtzx @ self.H.field_x
-        #     self.psiEzy = self.by * self.psiEzy + self.cy * self.dtzy @ self.H.field_y            
-
-        # else:
-     
-        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( self.dxy @ self.E.field_z - self.dxz @ self.E.field_y)
-        )
-        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( self.dyz @ self.E.field_x - self.dyx @ self.E.field_z)
-        )            
-        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( self.dzx @ self.E.field_y - self.dzy @ self.E.field_x)
-        )         
-
-
-        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( self.dtxy @ self.H.field_z - self.dtxz @ self.H.field_y)
+        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                             - self.dt * self.ieps.field_x * self.J.field_x
-        )
-        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( self.dtyz @ self.H.field_x - self.dtyx @ self.H.field_z) 
+                            + self.dt * self.ieps.field_x * (self.psiExy - self.psiExz))
+        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
                             - self.dt * self.ieps.field_y * self.J.field_y
-        )            
-        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( self.dtzx @ self.H.field_y - self.dtzy @ self.H.field_x) 
+                            + self.dt * self.ieps.field_y * (self.psiEyz - self.psiEyx))            
+        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                             - self.dt * self.ieps.field_z * self.J.field_z
-        )            
+                            + self.dt * self.ieps.field_z * (self.psiEzx - self.psiEzy))  
     
 
-        # include current computation
-        if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())        
+        self.J.fromarray(self.sigma.toarray() * self.E.toarray())        
 
+    # Trying to reduce the complexity by dividing through the lengths instead of multiplying with the lengths and dividing by the areas. Not working yet!
     def _one_step_pml(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
 
-        if self.activate_pml:
+        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_z - 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_y
+                            - (self.psiHxz - self.psiHxy))
+        )
+        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_x - 1.0 / (self.kappa.field_x * self.L.field_x) * self.Px * self.E.field_z 
+                            - (self.psiHyx - self.psiHyz))
+        )            
+        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( 1.0 / (self.kappa.field_x * self.L.field_x) * self.Px * self.E.field_y - 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_x 
+                            - (self.psiHzy - self.psiHzx))
+        )            
 
-            self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_z - 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_y
-                              - (self.psiHxz - self.psiHxy))
-            )
-            self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_x - 1.0 / (self.kappa.field_x * self.L.field_x) * self.Px * self.E.field_z 
-                              - (self.psiHyx - self.psiHyz))
-            )            
-            self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( 1.0 / (self.kappa.field_x * self.L.field_x) * self.Px * self.E.field_y - 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_x 
-                              - (self.psiHzy - self.psiHzx))
-            )            
+        self.psiHxy = self.by * self.psiHxy + self.cy * self.Pz * 1.0 / (self.kappa.field_z * self.L.field_z) * self.E.field_y
+        self.psiHxz = self.bz * self.psiHxz + self.cz * self.Py * 1.0 / (self.kappa.field_y * self.L.field_y) * self.E.field_z
+        self.psiHyx = self.bx * self.psiHyx + self.cx * self.Pz * 1.0 / (self.kappa.field_z * self.L.field_z) * self.E.field_x 
+        self.psiHyz = self.bz * self.psiHyz + self.cz * self.Px * 1.0 / (self.kappa.field_x * self.L.field_x) * self.E.field_z
+        self.psiHzx = self.bx * self.psiHzx + self.cx * self.Py * 1.0 / (self.kappa.field_y * self.L.field_y) * self.E.field_x
+        self.psiHzy = self.by * self.psiHzy + self.cy * self.Px * 1.0 / (self.kappa.field_x * self.L.field_x) * self.E.field_y
 
-            self.psiHxy = self.by * self.psiHxy + self.cy * self.Pz * 1.0 / (self.kappa.field_z * self.L.field_z) * self.E.field_y
-            self.psiHxz = self.bz * self.psiHxz + self.cz * self.Py * 1.0 / (self.kappa.field_y * self.L.field_y) * self.E.field_z
-            self.psiHyx = self.bx * self.psiHyx + self.cx * self.Pz * 1.0 / (self.kappa.field_z * self.L.field_z) * self.E.field_x 
-            self.psiHyz = self.bz * self.psiHyz + self.cz * self.Px * 1.0 / (self.kappa.field_x * self.L.field_x) * self.E.field_z
-            self.psiHzx = self.bx * self.psiHzx + self.cx * self.Py * 1.0 / (self.kappa.field_y * self.L.field_y) * self.E.field_x
-            self.psiHzy = self.by * self.psiHzy + self.cy * self.Px * 1.0 / (self.kappa.field_x * self.L.field_x) * self.E.field_y
+        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( 1.0 / self.kappa.field_y * self.itL.field_y * self.Py * self.H.field_z - 1.0 / self.kappa.field_z * self.itL.field_z * self.Pz * self.H.field_y
+                            - (self.psiExz - self.psiExy) - self.J.field_x)
+        )
+        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( 1.0 / self.kappa.field_z * self.itL.field_z * self.Pz * self.H.field_x - 1.0 / self.kappa.field_x * self.itL.field_x * self.Px * self.H.field_z 
+                            - (self.psiEyx - self.psiEyz) - self.J.field_y)
+        )            
+        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( 1.0 / self.kappa.field_x * self.itL.field_x * self.Px * self.H.field_y - 1.0 / self.kappa.field_y * self.itL.field_y * self.Py * self.H.field_x 
+                            - (self.psiEzy - self.psiEzx) - self.J.field_z)
+        )
 
-            self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( 1.0 / self.kappa.field_y * self.itL.field_y * self.Py * self.H.field_z - 1.0 / self.kappa.field_z * self.itL.field_z * self.Pz * self.H.field_y
-                              - (self.psiExz - self.psiExy) - self.J.field_x)
-            )
-            self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( 1.0 / self.kappa.field_z * self.itL.field_z * self.Pz * self.H.field_x - 1.0 / self.kappa.field_x * self.itL.field_x * self.Px * self.H.field_z 
-                              - (self.psiEyx - self.psiEyz) - self.J.field_y)
-            )            
-            self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( 1.0 / self.kappa.field_x * self.itL.field_x * self.Px * self.H.field_y - 1.0 / self.kappa.field_y * self.itL.field_y * self.Py * self.H.field_x 
-                              - (self.psiEzy - self.psiEzx) - self.J.field_z)
-            )
-
-            self.psiExy = self.by * self.psiExy + self.cy * self.Pz * 1.0 / (self.kappa.field_z) * self.itL.field_z * self.H.field_y
-            self.psiExz = self.bz * self.psiExz + self.cz * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_z
-            self.psiEyx = self.bx * self.psiEyx + self.cx * self.Pz * 1.0 / (self.kappa.field_z) * self.itL.field_z * self.H.field_x 
-            self.psiEyz = self.bz * self.psiEyz + self.cz * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_z
-            self.psiEzx = self.bx * self.psiEzx + self.cx * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_x
-            self.psiEzy = self.by * self.psiEzy + self.cy * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_y
-            
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())           
-
-
-        # include current computation
-        if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+        self.psiExy = self.by * self.psiExy + self.cy * self.Pz * 1.0 / (self.kappa.field_z) * self.itL.field_z * self.H.field_y
+        self.psiExz = self.bz * self.psiExz + self.cz * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_z
+        self.psiEyx = self.bx * self.psiEyx + self.cx * self.Pz * 1.0 / (self.kappa.field_z) * self.itL.field_z * self.H.field_x 
+        self.psiEyz = self.bz * self.psiEyz + self.cz * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_z
+        self.psiEzx = self.bx * self.psiEzx + self.cx * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_x
+        self.psiEzy = self.by * self.psiEzy + self.cy * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_y
+        
+        self.J.fromarray(self.sigma.toarray() * self.E.toarray())
 
     def _one_step(self):
         if self.step_0:
@@ -659,28 +648,23 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.split:
   
-            self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * self.iA.field_x * ( self.Py @ (self.L.field_z * self.E.field_z) - self.Pz @ (self.L.field_y * self.E.field_y)
-                                )
+            self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( self.dxy @ self.E.field_z - self.dxz @ self.E.field_y)
             )
-            self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * self.iA.field_y * ( self.Pz @ (self.L.field_x * self.E.field_x) - self.Px @ (self.L.field_z * self.E.field_z) 
-                                )
+            self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( self.dyz @ self.E.field_x - self.dyx @ self.E.field_z)
             )            
-            self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * self.iA.field_z * ( self.Px @ (self.L.field_y * self.E.field_y) - self.Py @ (self.L.field_x * self.E.field_x) 
-                                )
-            )  
+            self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( self.dzx @ self.E.field_y - self.dzy @ self.E.field_x)
+            )         
 
-            self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * self.itA.field_x * 
-                              ( - (self.Py.transpose() @ (self.tL.field_z * self.H.field_z)) + (self.Pz.transpose() @ (self.tL.field_y * self.H.field_y)))
-                              - self.dt * self.ieps.field_x * self.J.field_x
+
+            self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( self.dtxy @ self.H.field_z - self.dtxz @ self.H.field_y)
+                                - self.dt * self.ieps.field_x * self.J.field_x
             )
-            self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * self.itA.field_y * 
-                              ( - (self.Pz.transpose() @ (self.tL.field_x * self.H.field_x)) + (self.Px.transpose() @ (self.tL.field_z * self.H.field_z))) 
-                              - self.dt * self.ieps.field_y * self.J.field_y
+            self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( self.dtyz @ self.H.field_x - self.dtyx @ self.H.field_z) 
+                                - self.dt * self.ieps.field_y * self.J.field_y
             )            
-            self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * self.itA.field_z * 
-                              ( - (self.Px.transpose() @ (self.tL.field_y * self.H.field_y)) + (self.Py.transpose() @ (self.tL.field_x * self.H.field_x))) 
-                              - self.dt * self.ieps.field_z * self.J.field_z
-            )
+            self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( self.dtzx @ self.H.field_y - self.dtzy @ self.H.field_x) 
+                                - self.dt * self.ieps.field_z * self.J.field_z
+            )    
 
         else:
             self.H.fromarray(

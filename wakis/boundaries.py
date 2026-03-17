@@ -219,7 +219,6 @@ class BCsMixin:
 
         # Initialize PML parameters
         R0 = 1.0e-8        # Reflection coefficient at the interface between the PML and the main domain, controls how well the PML absorbs waves (lower is better but may require stronger conductivity)
-        pml_exp = 3
         eta_0 = 376.730313412    
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
         self.kappa = (
@@ -236,10 +235,12 @@ class BCsMixin:
         if self.bc_low[0].lower() == "pml":
             interface = self.x[self.n_pml]
             L = interface - self.x[0]
-            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.alpha_max is None:
+                self.alpha_max = self.alpha_factor * sigma_max
             for i in range(self.n_pml):
                 dist = interface - self.x[i]   # distance into PML
-                sx[i] = (dist / L)**pml_exp
+                sx[i] = (dist / L)**self.pml_exp
 
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -265,11 +266,13 @@ class BCsMixin:
         if self.bc_low[1].lower() == "pml":
             interface = self.y[self.n_pml]
             L = interface - self.y[0]
-            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.alpha_max is None:
+                self.alpha_max = self.alpha_factor * sigma_max
 
             for i in range(self.n_pml):
                 dist = interface - self.y[i]   # distance into PML
-                sy[i] = (dist / L)**pml_exp
+                sy[i] = (dist / L)**self.pml_exp
 
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -295,11 +298,13 @@ class BCsMixin:
         if self.bc_low[2].lower() == "pml":
             interface = self.z[self.n_pml]
             L = interface - self.z[0]
-            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.alpha_max is None:
+                self.alpha_max = self.alpha_factor * sigma_max
 
             for i in range(self.n_pml):
                 dist = interface - self.z[i]   # distance into PML
-                sz[i] = (dist / L)**pml_exp
+                sz[i] = (dist / L)**self.pml_exp
 
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -325,11 +330,13 @@ class BCsMixin:
         if self.bc_high[0].lower() == "pml":
             interface = self.x[-1-self.n_pml]
             L = self.x[-1] - interface
-            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.alpha_max is None:
+                self.alpha_max = self.alpha_factor * sigma_max
 
             for i in range(self.n_pml):
                 dist = self.x[-self.n_pml+i] - interface   # distance into PML
-                sx[-self.n_pml+i] = (dist / L)**pml_exp
+                sx[-self.n_pml+i] = (dist / L)**self.pml_exp
             
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -356,11 +363,13 @@ class BCsMixin:
         if self.bc_high[1].lower() == "pml":
             interface = self.y[-1-self.n_pml]
             L = self.y[-1] - interface
-            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.alpha_max is None:
+                self.alpha_max = self.alpha_factor * sigma_max
 
             for i in range(self.n_pml):
                 dist = self.y[-self.n_pml+i] - interface   # distance into PML
-                sy[-self.n_pml+i] = (dist / L)**pml_exp
+                sy[-self.n_pml+i] = (dist / L)**self.pml_exp
             
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -387,11 +396,13 @@ class BCsMixin:
         if self.bc_high[2].lower() == "pml":
             interface = self.z[-1-self.n_pml]
             L = self.z[-1] - interface
-            sigma_max = -(pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.alpha_max is None:
+                self.alpha_max = self.alpha_factor * sigma_max
 
             for i in range(self.n_pml):
                 dist = self.z[-self.n_pml+i] - interface   # distance into PML
-                sz[-self.n_pml+i] = (dist / L)**pml_exp
+                sz[-self.n_pml+i] = (dist / L)**self.pml_exp
 
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
