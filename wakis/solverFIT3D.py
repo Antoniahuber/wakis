@@ -372,15 +372,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.itAz = diags(
                 self.itA.field_z, shape=(N, N), dtype=self.dtype
             )
-            self.ikapx = diags(
-                1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype
-            )
-            self.ikapy = diags(
-                1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype
-            )
-            self.ikapz = diags(
-                1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
-            )
 
             self.dxy = self.iAx * self.Py * self.Lz
             self.dxz = self.iAx * self.Pz * self.Ly
@@ -399,6 +390,15 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         # Scale the material tensors in the PML region according to the kappa profile and precompute the PML update coefficients b and c
         if self.activate_pml:
 
+            self.ikapx = diags(
+                1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype
+            )
+            self.ikapy = diags(
+                1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype
+            )
+            self.ikapz = diags(
+                1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
+            )
             self.pml_b = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
             )
