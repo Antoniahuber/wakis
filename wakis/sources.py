@@ -881,11 +881,11 @@ class ModePacket:
         gausst = np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
 
         # Update
-        solver.H[:, :, self.zs, "y"] = (
+        solver.H[:, :, self.zs, "y"] += (
             -self.amplitude * np.cos(self.w * t + self.phase) * self.ExProfile * gausst
         )
 
-        solver.E[:, :, self.zs, "x"] = (
+        solver.E[:, :, self.zs, "x"] += (
             self.amplitude
             * mu_0
             * c_light

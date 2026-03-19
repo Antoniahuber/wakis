@@ -410,29 +410,28 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 -(self.sigma.toarray() *  1.0 / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0)
                 * self.dt
             ))
-            self.bx = self.pml_b.field_x
-            self.by = self.pml_b.field_y
-            self.bz = self.pml_b.field_z
 
             self.pml_c.toarray()[self.alpha_mask.toarray()] = (
                 self.sigma.toarray() / (self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()) 
                 * (self.pml_b.toarray() - oneField))[self.alpha_mask.toarray()]
-            self.cx = self.pml_c.field_x
-            self.cy = self.pml_c.field_y
-            self.cz = self.pml_c.field_z
 
-            self.psiHxy = 0
-            self.psiHxz = 0
-            self.psiHyx = 0
-            self.psiHyz = 0
-            self.psiHzx = 0
-            self.psiHzy = 0
-            self.psiExy = 0
-            self.psiExz = 0
-            self.psiEyx = 0
-            self.psiEyz = 0
-            self.psiEzx = 0
-            self.psiEzy = 0
+            self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+            self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+            self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+            self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+
+            # self.psiHxy = self.psiHa.field_x
+            # self.psiHxz = self.psiHb.field_x
+            # self.psiHyx = self.psiHb.field_y
+            # self.psiHyz = self.psiHa.field_y
+            # self.psiHzx = self.psiHa.field_z
+            # self.psiHzy = self.psiHb.field_z
+            # self.psiExy = self.psiEa.field_x
+            # self.psiExz = self.psiEb.field_x
+            # self.psiEyx = self.psiEb.field_y
+            # self.psiEyz = self.psiEa.field_y
+            # self.psiEzx = self.psiEa.field_z
+            # self.psiEzy = self.psiEb.field_z
         
             self.dxy = self.ikapx * self.dxy
             self.dxz = self.ikapx * self.dxz
@@ -460,6 +459,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.one_step = (
                 self._mpi_one_step_mkl if self.use_mpi else self._one_step_mkl
             )
+        if self.activate_pml:
+            self.one_step = self._one_step_cpml
 
         # Move to GPU
         if use_gpu:
@@ -470,6 +471,23 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.itDaiDepsDstC = gpu_sparse_mat(self.itDaiDepsDstC)
                 self.ieps.to_gpu()
                 self.sigma.to_gpu()
+                self.imu.to_gpu()
+
+                if self.activate_pml or self.split:
+                    self.dxy = gpu_sparse_mat(self.dxy)
+                    self.dxz = gpu_sparse_mat(self.dxz)
+                    self.dyz = gpu_sparse_mat(self.dyz)
+                    self.dyx = gpu_sparse_mat(self.dyx)
+                    self.dzx = gpu_sparse_mat(self.dzx)
+                    self.dzy = gpu_sparse_mat(self.dzy)
+                    self.dtxy = gpu_sparse_mat(self.dtxy)
+                    self.dtxz = gpu_sparse_mat(self.dtxz)
+                    self.dtyz = gpu_sparse_mat(self.dtyz)
+                    self.dtyx = gpu_sparse_mat(self.dtyx)
+                    self.dtzx = gpu_sparse_mat(self.dtzx)
+                    self.dtzy = gpu_sparse_mat(self.dtzy)
+                    self.pml_b.to_gpu()
+                    self.pml_c.to_gpu()
             else:
                 raise ImportError(
                     "[!] cupyx could not be imported, please check CUDA installation"
@@ -549,7 +567,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            print("Starting time-stepping with CPML...")
+            if self.verbose>1:
+                    print("Starting time-stepping with CPML...")
+                    print("TYPE dxy:", type(self.dxy))
+                    print("TYPE Ez:", type(self.E.field_z))
+                    print("TYPE by:", type(self.pml_b.field_x))
+                    print("TYPE cy:", type(self.pml_c.field_x))
+                    print("TYPE psiHa:", type(self.psiHa.field_x))
     
         dxyEz = self.dxy @ self.E.field_z
         dxzEy = self.dxz @ self.E.field_y
@@ -558,19 +582,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dzxEy = self.dzx @ self.E.field_y
         dzyEx = self.dzy @ self.E.field_x
         
-        self.psiHxy = self.by * self.psiHxy + self.cy * dxyEz
-        self.psiHxz = self.bz * self.psiHxz + self.cz * dxzEy
-        self.psiHyx = self.bx * self.psiHyx + self.cx * dyxEz
-        self.psiHyz = self.bz * self.psiHyz + self.cz * dyzEx
-        self.psiHzx = self.bx * self.psiHzx + self.cx * dzxEy
-        self.psiHzy = self.by * self.psiHzy + self.cy * dzyEx
+        self.psiHa.field_x = self.pml_b.field_x * self.psiHa.field_x + self.pml_c.field_x * dxyEz
+        self.psiHb.field_x = self.pml_b.field_z * self.psiHb.field_x + self.pml_c.field_z * dxzEy
+        self.psiHb.field_y = self.pml_b.field_x * self.psiHb.field_y + self.pml_c.field_x * dyxEz
+        self.psiHa.field_y = self.pml_b.field_z * self.psiHa.field_y + self.pml_c.field_z * dyzEx
+        self.psiHa.field_z = self.pml_b.field_x * self.psiHa.field_z + self.pml_c.field_x * dzxEy
+        self.psiHb.field_z = self.pml_b.field_y * self.psiHb.field_z + self.pml_c.field_y * dzyEx
 
-        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( dxyEz - dxzEy)
-        ) - self.dt * self.imu.field_x * (self.psiHxy - self.psiHxz)
-        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( dyzEx - dyxEz)
-        ) - self.dt * self.imu.field_y * (self.psiHyz - self.psiHyx)           
-        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( dzxEy - dzyEx)
-        ) - self.dt * self.imu.field_z * (self.psiHzx - self.psiHzy)
+        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * (dxyEz - dxzEy)
+        ) - self.dt * self.imu.field_x * (self.psiHa.field_x - self.psiHb.field_x)
+        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * (dyzEx - dyxEz)
+        ) - self.dt * self.imu.field_y * (self.psiHa.field_y - self.psiHb.field_y)           
+        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * (dzxEy - dzyEx)
+        ) - self.dt * self.imu.field_z * (self.psiHa.field_z - self.psiHb.field_z)
 
         dtxyHz = self.dtxy @ self.H.field_z
         dtxzHy = self.dtxz @ self.H.field_y
@@ -579,22 +603,22 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dtzxHy = self.dtzx @ self.H.field_y
         dtzyHx = self.dtzy @ self.H.field_x
 
-        self.psiExy = self.by * self.psiExy + self.cy * dtxyHz
-        self.psiExz = self.bz * self.psiExz + self.cz * dtxzHy
-        self.psiEyx = self.bx * self.psiEyx + self.cx * dtyxHz
-        self.psiEyz = self.bz * self.psiEyz + self.cz * dtyzHx
-        self.psiEzx = self.bx * self.psiEzx + self.cx * dtzxHy
-        self.psiEzy = self.by * self.psiEzy + self.cy * dtzyHx
+        self.psiEa.field_x = self.pml_b.field_y * self.psiEa.field_x + self.pml_c.field_y * dtxyHz
+        self.psiEb.field_x = self.pml_b.field_z * self.psiEb.field_x + self.pml_c.field_z * dtxzHy
+        self.psiEb.field_y = self.pml_b.field_x * self.psiEb.field_y + self.pml_c.field_x * dtyxHz
+        self.psiEa.field_y = self.pml_b.field_z * self.psiEa.field_y + self.pml_c.field_z * dtyzHx
+        self.psiEa.field_z = self.pml_b.field_x * self.psiEa.field_z + self.pml_c.field_x * dtzxHy
+        self.psiEb.field_z = self.pml_b.field_y * self.psiEb.field_z + self.pml_c.field_y * dtzyHx
 
         self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                             - self.dt * self.ieps.field_x * self.J.field_x
-                            + self.dt * self.ieps.field_x * (self.psiExy - self.psiExz))
+                            + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
         self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
                             - self.dt * self.ieps.field_y * self.J.field_y
-                            + self.dt * self.ieps.field_y * (self.psiEyz - self.psiEyx))            
+                            + self.dt * self.ieps.field_y * (self.psiEa.field_y - self.psiEb.field_y))            
         self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                             - self.dt * self.ieps.field_z * self.J.field_z
-                            + self.dt * self.ieps.field_z * (self.psiEzx - self.psiEzy))  
+                            + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))  
     
 
         self.J.fromarray(self.sigma.toarray() * self.E.toarray())        
@@ -1145,9 +1169,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             del self.Dbc
         if self.activate_pml:
            del self.alpha_mask
-           #del self.kappa
+           del self.kappa
            del self.alpha
-           del self.pml_b, self.pml_c
         del self.L, self.tL, self.iA, self.itA
 
 
