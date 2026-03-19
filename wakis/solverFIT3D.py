@@ -55,7 +55,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         bg=[1.0, 1.0],
         verbose=1,
         kappa_max=5,
-        alpha_max=None,
         alpha_factor=0.1,
         split=False,
         sigma_factor = 1,
@@ -279,14 +278,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.activate_pml:
             if verbose:
                 print("Filling PML sigmas...")
+            self.one_step = self._one_step_cpml
             self.sigma_factor = sigma_factor
             self.pml_exp = pml_exp
             self.n_pml = n_pml
             self.kappa_max = kappa_max
-            self.alpha_max = alpha_max
             self.alpha_factor = alpha_factor
             self._initialize_PML()
-            self.update_logger(["n_pml", "kappa_max", "alpha_max"])
+            self.update_logger(["n_pml", "kappa_max", "alpha_factor", "sigma_factor", "pml_exp"])
 
         # Timestep calculation
         if verbose:
@@ -316,7 +315,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             ]
 
             if self.dt > self.tau.min():
-                self.dt = self.tau.min()\
+                self.dt = self.tau.min()
                 
         self.update_logger(["dt"])
 
@@ -549,6 +548,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
+            self._attrcleanup()
+            print("Starting time-stepping with CPML...")
     
         dxyEz = self.dxy @ self.E.field_z
         dxzEy = self.dxz @ self.E.field_y
@@ -640,45 +641,52 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         
         self.J.fromarray(self.sigma.toarray() * self.E.toarray())
 
+    def _one_step_split(self):
+        if self.step_0:
+            self._set_ghosts_to_0()
+            self.step_0 = False
+            self._attrcleanup()
+
+        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( self.dxy @ self.E.field_z - self.dxz @ self.E.field_y)
+        )
+        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( self.dyz @ self.E.field_x - self.dyx @ self.E.field_z)
+        )            
+        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( self.dzx @ self.E.field_y - self.dzy @ self.E.field_x)
+        )         
+
+
+        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( self.dtxy @ self.H.field_z - self.dtxz @ self.H.field_y)
+                            - self.dt * self.ieps.field_x * self.J.field_x
+        )
+        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( self.dtyz @ self.H.field_x - self.dtyx @ self.H.field_z) 
+                            - self.dt * self.ieps.field_y * self.J.field_y
+        )            
+        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( self.dtzx @ self.H.field_y - self.dtzy @ self.H.field_x) 
+                            - self.dt * self.ieps.field_z * self.J.field_z
+        )    
+
+        # include current computation
+        if self.use_conductivity:
+            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+
     def _one_step(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
-            #self._attrcleanup()
+            self._attrcleanup()
 
-        if self.split:
-  
-            self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( self.dxy @ self.E.field_z - self.dxz @ self.E.field_y)
+        self.H.fromarray(
+            self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
+        )
+
+        self.E.fromarray(
+            self.E.toarray()
+            + self.dt
+            * (
+                self.itDaiDepsDstC * self.H.toarray()
+                - self.ieps.toarray() * self.J.toarray()
             )
-            self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( self.dyz @ self.E.field_x - self.dyx @ self.E.field_z)
-            )            
-            self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( self.dzx @ self.E.field_y - self.dzy @ self.E.field_x)
-            )         
-
-
-            self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( self.dtxy @ self.H.field_z - self.dtxz @ self.H.field_y)
-                                - self.dt * self.ieps.field_x * self.J.field_x
-            )
-            self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( self.dtyz @ self.H.field_x - self.dtyx @ self.H.field_z) 
-                                - self.dt * self.ieps.field_y * self.J.field_y
-            )            
-            self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( self.dtzx @ self.H.field_y - self.dtzy @ self.H.field_x) 
-                                - self.dt * self.ieps.field_z * self.J.field_z
-            )    
-
-        else:
-            self.H.fromarray(
-                self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
-            )
-
-            self.E.fromarray(
-                self.E.toarray()
-                + self.dt
-                * (
-                    self.itDaiDepsDstC * self.H.toarray()
-                    - self.ieps.toarray() * self.J.toarray()
-                )
-            )
+        )
 
         # include current computation
         if self.use_conductivity:
@@ -1137,20 +1145,24 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             del self.Dbc
         if self.activate_pml:
            del self.alpha_mask
-           del self.kappa
+           #del self.kappa
            del self.alpha
-        else:
-            del self.L, self.tL, self.iA, self.itA
+           del self.pml_b, self.pml_c
+        del self.L, self.tL, self.iA, self.itA
 
 
         # Matrices
-        #del self.Px, self.Py, self.Pz
+        del self.Px, self.Py, self.Pz
         del self.Ds, self.iDa, self.tDs, self.itDa
         del self.C
+        if self.split or self.activate_pml:
+            del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz
+            del self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz
         if self.activate_pml:
-         #   del self.iDkappa
+            del self.ikapx, self.ikapy, self.ikapz
+            
+
           #  del self.diag_1
-           # del self.Dif
             pass
 
     def save_state(self, filename="solver_state.h5", close=True):
