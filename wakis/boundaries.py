@@ -5,6 +5,8 @@
 
 import numpy as np
 from scipy.constants import mu_0 as mu_0
+from scipy.constants import epsilon_0 as eps_0
+from scipy.constants import c as c_light
 from scipy.sparse import diags
 
 from .field import Field
@@ -236,8 +238,7 @@ class BCsMixin:
             interface = self.x[self.n_pml]
             L = interface - self.x[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            if self.alpha_max is None:
-                self.alpha_max = self.alpha_factor * sigma_max
+            self.alpha_max = self.alpha_factor * sigma_max
             for i in range(self.n_pml):
                 dist = interface - self.x[i]   # distance into PML
                 sx[i] = (dist / L)**self.pml_exp
@@ -267,9 +268,7 @@ class BCsMixin:
             interface = self.y[self.n_pml]
             L = interface - self.y[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            if self.alpha_max is None:
-                self.alpha_max = self.alpha_factor * sigma_max
-
+            self.alpha_max = self.alpha_factor * sigma_max
             for i in range(self.n_pml):
                 dist = interface - self.y[i]   # distance into PML
                 sy[i] = (dist / L)**self.pml_exp
@@ -299,9 +298,7 @@ class BCsMixin:
             interface = self.z[self.n_pml]
             L = interface - self.z[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            if self.alpha_max is None:
-                self.alpha_max = self.alpha_factor * sigma_max
-
+            self.alpha_max = self.alpha_factor * sigma_max
             for i in range(self.n_pml):
                 dist = interface - self.z[i]   # distance into PML
                 sz[i] = (dist / L)**self.pml_exp
@@ -331,9 +328,7 @@ class BCsMixin:
             interface = self.x[-1-self.n_pml]
             L = self.x[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            if self.alpha_max is None:
-                self.alpha_max = self.alpha_factor * sigma_max
-
+            self.alpha_max = self.alpha_factor * sigma_max
             for i in range(self.n_pml):
                 dist = self.x[-self.n_pml+i] - interface   # distance into PML
                 sx[-self.n_pml+i] = (dist / L)**self.pml_exp
@@ -364,9 +359,7 @@ class BCsMixin:
             interface = self.y[-1-self.n_pml]
             L = self.y[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            if self.alpha_max is None:
-                self.alpha_max = self.alpha_factor * sigma_max
-
+            self.alpha_max = self.alpha_factor * sigma_max
             for i in range(self.n_pml):
                 dist = self.y[-self.n_pml+i] - interface   # distance into PML
                 sy[-self.n_pml+i] = (dist / L)**self.pml_exp
@@ -397,9 +390,7 @@ class BCsMixin:
             interface = self.z[-1-self.n_pml]
             L = self.z[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            if self.alpha_max is None:
-                self.alpha_max = self.alpha_factor * sigma_max
-
+            self.alpha_max = self.alpha_factor * sigma_max
             for i in range(self.n_pml):
                 dist = self.z[-self.n_pml+i] - interface   # distance into PML
                 sz[-self.n_pml+i] = (dist / L)**self.pml_exp
