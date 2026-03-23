@@ -220,6 +220,9 @@ class BCsMixin:
         """
 
         # Initialize PML parameters
+        if self.verbose>1:
+            print("Initializing PML parameters...")
+        self.g = 2.13
         R0 = 1.0e-8        # Reflection coefficient at the interface between the PML and the main domain, controls how well the PML absorbs waves (lower is better but may require stronger conductivity)
         eta_0 = 376.730313412    
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
@@ -294,32 +297,63 @@ class BCsMixin:
                     if self.alpha_max != 0:
                         self.alpha_mask[:, j, :, d] = True                    
 
-        if self.bc_low[2].lower() == "pml":
+        # if self.bc_low[2].lower() == "pml":
+        #     interface = self.z[self.n_pml]
+        #     L = interface - self.z[0]
+        #     sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+        #     self.alpha_max = self.alpha_factor * sigma_max
+        #     for i in range(self.n_pml):
+        #         dist = interface - self.z[i]   # distance into PML
+        #         sz[i] = (dist / L)**self.pml_exp
+
+        #     for d in ["x", "y", "z"]:
+        #         # Get the properties from the layer before the PML
+        #         # Take the values at the center of the xy plane
+        #         ieps_0_pml = self.ieps[
+        #             self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
+        #         ]
+        #         sigma_0_pml = self.sigma[
+        #             self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
+        #         ]
+        #         for k in range(self.n_pml):
+        #             self.ieps[:, :, k, d] = ieps_0_pml
+        #             self.sigma[:, :, k, d] = (
+        #                 sigma_0_pml + (sigma_max - sigma_0_pml) * sz[k]
+        #             )
+        #             self.kappa[:, :, k, d] = (
+        #                 1 + (self.kappa_max - 1) * sz[k]
+        #             )
+        #             self.alpha[:, :, k, d] = self.alpha_max
+        #             if self.alpha_max != 0:
+        #                 self.alpha_mask[:, :, k, d] = True
+
+
+        if self.bc_low[2].lower() == "pml": # geometric approach, only work with uniform grid
             interface = self.z[self.n_pml]
-            L = interface - self.z[0]
-            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            self.alpha_max = self.alpha_factor * sigma_max
-            for i in range(self.n_pml):
+            dz_ref = self.z[self.n_pml] - self.z[self.n_pml-1]
+            sigma0 = -(eps_0 * c_light * np.log(self.g) * np.log(R0)) / (2 * dz_ref * (self.g**self.n_pml - 1))    #geoemetric profile
+            sigma_geom = np.zeros(self.n_pml)
+            sigma_geom[-1] = sigma0
+            kappa_geom = np.zeros(self.n_pml)
+            kappa_geom[-1] = 1
+
+            for i in range(self.n_pml-1):
                 dist = interface - self.z[i]   # distance into PML
-                sz[i] = (dist / L)**self.pml_exp
+                sigma_geom[i] = sigma_geom[-1] * (self.g**(1 / dz_ref))**dist # only work with uniform grid
+                kappa_geom[i] = kappa_geom[-1] * ((1.2)**(1 / dz_ref))**dist
+            self.alpha_max = self.alpha_factor * sigma_geom[-1]    
 
             for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xy plane
                 ieps_0_pml = self.ieps[
-                    self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
+                    self.Nx // 2, self.Ny // 2, (self.n_pml + 1), d
                 ]
                 sigma_0_pml = self.sigma[
-                    self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
+                    self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
                 ]
                 for k in range(self.n_pml):
                     self.ieps[:, :, k, d] = ieps_0_pml
-                    self.sigma[:, :, k, d] = (
-                        sigma_0_pml + (sigma_max - sigma_0_pml) * sz[k]
-                    )
-                    self.kappa[:, :, k, d] = (
-                        1 + (self.kappa_max - 1) * sz[k]
-                    )
+                    self.sigma[:, :, k, d] = sigma_0_pml + sigma_geom[k]
+                    self.kappa[:, :, k, d] = kappa_geom[k]
                     self.alpha[:, :, k, d] = self.alpha_max
                     if self.alpha_max != 0:
                         self.alpha_mask[:, :, k, d] = True                     
@@ -386,36 +420,70 @@ class BCsMixin:
                     if self.alpha_max != 0:
                         self.alpha_mask[:, -j, :, d] = True 
 
-        if self.bc_high[2].lower() == "pml":
-            interface = self.z[-1-self.n_pml]
-            L = self.z[-1] - interface
-            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            self.alpha_max = self.alpha_factor * sigma_max
-            for i in range(self.n_pml):
-                dist = self.z[-self.n_pml+i] - interface   # distance into PML
-                sz[-self.n_pml+i] = (dist / L)**self.pml_exp
+        # if self.bc_high[2].lower() == "pml":
+        #     interface = self.z[-1-self.n_pml]
+        #     L = self.z[-1] - interface
+        #     sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+        #     self.alpha_max = self.alpha_factor * sigma_max
+        #     for i in range(self.n_pml):
+        #         dist = self.z[-self.n_pml+i] - interface   # distance into PML
+        #         sz[-self.n_pml+i] = (dist / L)**self.pml_exp
+
+        #     for d in ["x", "y", "z"]:
+        #         # Get the properties from the layer before the PML
+        #         # Take the values at the center of the xy plane
+        #         ieps_0_pml = self.ieps[
+        #             self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
+        #         ]
+        #         sigma_0_pml = self.sigma[
+        #             self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
+        #         ]
+        #         for k in range(self.n_pml):
+        #             k += 1
+        #             self.ieps[:, :, -k, d] = ieps_0_pml
+        #             self.sigma[:, :, -k, d] = (
+        #                 sigma_0_pml + (sigma_max - sigma_0_pml) * sz[-k]
+        #             )
+        #             self.kappa[:, :, -k, d] = (
+        #                 1 + (self.kappa_max - 1) * sz[-k]
+        #             )
+        #             self.alpha[:, :, -k, d] = self.alpha_max
+        #             if self.alpha_max != 0:
+        #                 self.alpha_mask[:, :, -k, d] = True
+
+        if self.bc_high[2].lower() == "pml": # geometric approach, only work with uniform grid
+            interface = self.z[-self.n_pml-1]
+            dz_ref = self.z[-self.n_pml] - self.z[-self.n_pml-1]
+            sigma0 = -(eps_0 * c_light * np.log(self.g) * np.log(R0)) / (2 * dz_ref * (self.g**self.n_pml - 1))    #geoemetric profile
+            sigma_geom = np.zeros(self.n_pml)
+            sigma_geom[0] = sigma0
+            kappa_geom = np.zeros(self.n_pml)
+            kappa_geom[0] = 1
+
+            for i in range(1,self.n_pml):
+                dist = self.z[-self.n_pml+i] - interface  # distance into PML
+                #dz_k = self.z[-self.n_pml+i] - self.z[-self.n_pml+i-1]
+                #kappa_geom[i] = kappa_geom[i-1] * (self.g*1.1)**(dz_k / dz_ref)
+                #sigma_geom[i] = sigma_geom[i-1] * self.g**(dz_k / dz_ref)
+                sigma_geom[i] = sigma_geom[0] * (self.g**(1 / dz_ref))**dist # only work with uniform grid
+                kappa_geom[i] = kappa_geom[0] * ((1.2)**(1 / dz_ref))**dist
+            self.alpha_max = self.alpha_factor * sigma_geom[-1]    
 
             for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xy plane
                 ieps_0_pml = self.ieps[
                     self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
                 ]
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
                 ]
-                for k in range(self.n_pml):
-                    k += 1
+                for k in range(1,self.n_pml+1):
                     self.ieps[:, :, -k, d] = ieps_0_pml
-                    self.sigma[:, :, -k, d] = (
-                        sigma_0_pml + (sigma_max - sigma_0_pml) * sz[-k]
-                    )
-                    self.kappa[:, :, -k, d] = (
-                        1 + (self.kappa_max - 1) * sz[-k]
-                    )
+                    self.sigma[:, :, -k, d] = sigma_0_pml + sigma_geom[-k]
+                    self.kappa[:, :, -k, d] = kappa_geom[-k]
                     self.alpha[:, :, -k, d] = self.alpha_max
                     if self.alpha_max != 0:
-                        self.alpha_mask[:, :, -k, d] = True            
+                        self.alpha_mask[:, :, -k, d] = True
+                            
 
     def get_abc(self):
         """
