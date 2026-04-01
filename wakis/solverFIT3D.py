@@ -566,6 +566,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            self.J_old = np.zeros_like(self.J.toarray())
             if self.verbose>1:
                     print("Starting time-stepping with CPML...")
     
@@ -615,12 +616,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                             + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))  
     
 
-        self.J.fromarray(self.sigma.toarray() * self.E.toarray())        
+        Jtemp = self.sigma.toarray() * self.E.toarray()
+        dJ = (Jtemp - self.J_old)
+        self.J.fromarray(self.J.toarray() + dJ)
+        self.J_old = Jtemp
 
-    # Trying to reduce the complexity by dividing through the lengths instead of multiplying with the lengths and dividing by the areas. Not working yet!
     def _one_step_pml(self):
+        # Trying to reduce the complexity by dividing through the lengths instead of multiplying with the lengths and dividing by the areas. Not working yet!
         if self.step_0:
             self._set_ghosts_to_0()
+            self.J_old = np.zeros_like(self.J.toarray())
             self.step_0 = False
 
         self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_z - 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_y
@@ -657,13 +662,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.psiEzx = self.bx * self.psiEzx + self.cx * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_x
         self.psiEzy = self.by * self.psiEzy + self.cy * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_y
         
-        self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+        Jtemp = self.sigma.toarray() * self.E.toarray()
+        dJ = (Jtemp - self.J_old)
+        self.J.fromarray(self.J.toarray() + dJ)
+        self.J_old = Jtemp
 
     def _one_step_split(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( self.dxy @ self.E.field_z - self.dxz @ self.E.field_y)
         )
@@ -685,14 +694,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            Jtemp = self.sigma.toarray() * self.E.toarray()
+            dJ = (Jtemp - self.J_old)
+            self.J.fromarray(self.J.toarray() + dJ)
+            self.J_old = Jtemp
 
     def _one_step(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-
+            self.J_old = np.zeros_like(self.J.toarray())
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
         )
@@ -708,14 +720,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            Jtemp = self.sigma.toarray() * self.E.toarray()
+            dJ = (Jtemp - self.J_old)
+            self.J.fromarray(self.J.toarray() + dJ)
+            self.J_old = Jtemp
 
     def _one_step_mkl(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-
+            self.J_old = np.zeros_like(self.J.toarray())
         if self.activate_pml:
 
 
@@ -765,8 +780,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                                 + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))  
         
 
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
-        
+            Jtemp = self.sigma.toarray() * self.E.toarray()
+            dJ = (Jtemp - self.J_old)
+            self.J.fromarray(self.J.toarray() + dJ)
+            self.J_old = Jtemp
+
         else:       
             self.H.fromarray(
                 self.H.toarray()
@@ -784,7 +802,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
             # include current computation
             if self.use_conductivity:
-                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+                Jtemp = self.sigma.toarray() * self.E.toarray()# * self.damp.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
 
     def _mpi_initialize(self):
         self.comm = self.grid.comm
@@ -801,6 +822,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
@@ -820,14 +842,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._mpi_communicate(self.E)
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            Jtemp = self.sigma.toarray() * self.E.toarray()
+            dJ = (Jtemp - self.J_old)
+            self.J.fromarray(self.J.toarray() + dJ)
+            self.J_old = Jtemp
 
     def _mpi_one_step_mkl(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-
+            self.J_old = np.zeros_like(self.J.toarray())
         self.H.fromarray(
             self.H.toarray()
             - self.dt * dot_product_mkl(self.tDsiDmuiDaC, self.E.toarray())
@@ -848,7 +873,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._mpi_communicate(self.E)
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            Jtemp = self.sigma.toarray() * self.E.toarray()
+            dJ = (Jtemp - self.J_old)
+            self.J.fromarray(self.J.toarray() + dJ)
+            self.J_old = Jtemp
 
     def _mpi_communicate(self, field):
         if self.use_gpu:

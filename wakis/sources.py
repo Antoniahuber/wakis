@@ -88,6 +88,7 @@ class Beam:
                 np.abs(solver.x - self.xsource).argmin(),
                 np.abs(solver.y - self.ysource).argmin(),
             )
+            self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
             self.is_first_update = False
             if hasattr(solver, "ZMIN"):  # support for MPI
                 zminIdx = np.abs(solver.z - solver.ZMIN).argmin()
@@ -104,9 +105,10 @@ class Beam:
             * np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
         )
         # update
-        solver.J[self.ixs, self.iys, :, "z"] = (
-            self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
-        )
+        Jprofile = self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
+        dJ = Jprofile - self.Jold
+        solver.J[self.ixs, self.iys, :, "z"] += dJ
+        self.Jold = Jprofile
 
     def plot(self, t):
         """
