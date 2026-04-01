@@ -115,9 +115,27 @@ class BCsMixin:
                 shape=(3 * self.N, 3 * self.N),
                 dtype=np.int8,
             )
+            self.Dbc_x = diags(
+                self.BC.field_x,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_y = diags(
+                self.BC.field_y,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_z = diags(
+                self.BC.field_z,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
 
             # Update C (columns)
             self.C = self.C * self.Dbc
+            self.Px = self.Px * self.Dbc_y * self.Dbc_z
+            self.Py = self.Py * self.Dbc_x * self.Dbc_z
+            self.Pz = self.Pz * self.Dbc_x * self.Dbc_y
 
         # Dirichlet PMC: tangential H field = 0 at boundary
         if any(
@@ -168,9 +186,27 @@ class BCsMixin:
                 shape=(3 * self.N, 3 * self.N),
                 dtype=np.int8,
             )
+            self.Dbc_x = diags(
+                self.BC.field_x,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_y = diags(
+                self.BC.field_y,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_z = diags(
+                self.BC.field_z,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
 
             # Update C (rows)
             self.C = self.Dbc * self.C
+            self.Px = self.Dbc_z * self.Dbc_y * self.Px
+            self.Py = self.Dbc_x * self.Dbc_z * self.Py
+            self.Pz = self.Dbc_y * self.Dbc_x * self.Pz
 
         # Absorbing boundary conditions ABC
         if any(True for x in self.bc_low if x.lower() == "abc") or any(
