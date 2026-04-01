@@ -396,7 +396,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.dtyz = self.itAy * -self.Pz.transpose() * self.tLx
             self.dtyx = self.itAy * -self.Px.transpose() * self.tLz
             self.dtzx = self.itAz * -self.Px.transpose() * self.tLy
-            self.dtzy = self.itAz * -self.Py.transpose() * self.Lx
+            self.dtzy = self.itAz * -self.Py.transpose() * self.tLx
 
             self.pml_b = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
@@ -563,7 +563,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dzxEy = self.dzx @ self.E.field_y
         dzyEx = self.dzy @ self.E.field_x
         
-        self.psiHa.field_x = self.pml_b.field_x * self.psiHa.field_x + self.pml_c.field_x * dxyEz
+        self.psiHa.field_x = self.pml_b.field_y * self.psiHa.field_x + self.pml_c.field_y * dxyEz
         self.psiHb.field_x = self.pml_b.field_z * self.psiHb.field_x + self.pml_c.field_z * dxzEy
         self.psiHb.field_y = self.pml_b.field_x * self.psiHb.field_y + self.pml_c.field_x * dyxEz
         self.psiHa.field_y = self.pml_b.field_z * self.psiHa.field_y + self.pml_c.field_z * dyzEx
