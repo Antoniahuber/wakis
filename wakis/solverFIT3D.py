@@ -56,7 +56,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         verbose=1,
         kappa_max=5,
         alpha_factor=0.1,
-        split=False,
         sigma_factor = 1,
         pml_exp = 3,
     ):
@@ -137,7 +136,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         )
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
-        self.split=split
         if use_stl:
             self.use_conductors = False
         self.update_logger(["use_gpu", "use_mpi"])
@@ -334,7 +332,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         )
 
         # Matrices for lengths and areas for split field calculations
-        if self.split or self.activate_pml:
+        if self.activate_pml:
 
             self.tLx = diags(
                 self.tL.field_x, shape=(N, N), dtype=self.dtype
@@ -372,6 +370,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.itAz = diags(
                 self.itA.field_z, shape=(N, N), dtype=self.dtype
             )
+            self.ikapx = diags(
+                1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype
+            )
+            self.ikapy = diags(
+                1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype
+            )
+            self.ikapz = diags(
+                1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
+            )
+
+            self.Px = self.ikapx * self.Px
+            self.Py = self.ikapy * self.Py
+            self.Pz = self.ikapz * self.Pz            
 
             self.dxy = self.iAx * self.Py * self.Lz
             self.dxz = self.iAx * self.Pz * self.Ly
@@ -387,18 +398,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.dtzx = self.itAz * -self.Px.transpose() * self.tLy
             self.dtzy = self.itAz * -self.Py.transpose() * self.Lx
 
-        # Scale the material tensors in the PML region according to the kappa profile and precompute the PML update coefficients b and c
-        if self.activate_pml:
-
-            self.ikapx = diags(
-                1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype
-            )
-            self.ikapy = diags(
-                1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype
-            )
-            self.ikapz = diags(
-                1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
-            )
             self.pml_b = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
             )
@@ -421,19 +420,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
 
-            self.dxy = self.ikapx * self.dxy
-            self.dxz = self.ikapx * self.dxz
-            self.dyz = self.ikapy * self.dyz
-            self.dyx = self.ikapy * self.dyx
-            self.dzx = self.ikapz * self.dzx
-            self.dzy = self.ikapz * self.dzy
-            self.dtxy = self.ikapx * self.dtxy
-            self.dtxz = self.ikapx * self.dtxz
-            self.dtyz = self.ikapy * self.dtyz
-            self.dtyx = self.ikapy * self.dtyx
-            self.dtzx = self.ikapz * self.dtzx
-            self.dtzy = self.ikapz * self.dtzy            
-
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = (
             self.iDeps * self.itDa * self.C.transpose() * self.tDs
@@ -447,7 +433,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.one_step = (
                 self._mpi_one_step_mkl if self.use_mpi else self._one_step_mkl
             )
-            if self.activate_pml or split:
+            if self.activate_pml:
                 self.dxy = mkl_sparse_mat(self.dxy)
                 self.dxz = mkl_sparse_mat(self.dxz)
                 self.dyz = mkl_sparse_mat(self.dyz)
@@ -472,7 +458,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.sigma.to_gpu()
                 self.imu.to_gpu()
 
-                if self.activate_pml or self.split:
+                if self.activate_pml:
                     self.dxy = gpu_sparse_mat(self.dxy)
                     self.dxz = gpu_sparse_mat(self.dxz)
                     self.dyz = gpu_sparse_mat(self.dyz)
@@ -1247,20 +1233,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
            del self.alpha
         del self.L, self.tL, self.iA, self.itA
 
-
         # Matrices
         del self.Px, self.Py, self.Pz
         del self.Ds, self.iDa, self.tDs, self.itDa
         del self.C
-        if self.split or self.activate_pml:
+        if self.activate_pml:
             del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz
             del self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz
-        if self.activate_pml:
             del self.ikapx, self.ikapy, self.ikapz
-            
-
-          #  del self.diag_1
-            pass
 
     def save_state(self, filename="solver_state.h5", close=True):
         """
