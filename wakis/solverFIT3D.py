@@ -57,6 +57,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         verbose=1,
         kappa_max=5,
         alpha_factor=0.1,
+        pml_hi=None,
         pml_exp = 2,
         cleaning = None,
     ):
@@ -297,6 +298,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 print("Filling PML sigmas...")
             self.pml_exp = pml_exp
             self.n_pml = n_pml
+            self.pml_hi = pml_hi
             self.kappa_max = kappa_max
             self.alpha_factor = alpha_factor
             self._initialize_PML()

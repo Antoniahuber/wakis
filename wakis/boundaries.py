@@ -251,16 +251,14 @@ class BCsMixin:
         R0 = 1e-8  # target reflection coefficient for PML design
         eta_0 = 376.730313412    
         self.pml_lo = 5.0e-3
-        self.hi = 1
         pml_hi_dict = {
             6: 1.2,
             8: 0.65,
             10: 0.45,
             12: 0.35,
         }
-        if self.n_pml not in pml_hi_dict:
-            self.hi = 0
-        self.pml_hi = pml_hi_dict.get(self.n_pml, 1.0)  # default to 1.0 if n_pml not in dict
+        if self.pml_hi is None and self.n_pml in pml_hi_dict:
+            self.pml_hi = pml_hi_dict[self.n_pml]
         self.pml_func = np.geomspace
         self.kappa = (
             Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
@@ -276,8 +274,8 @@ class BCsMixin:
         if self.bc_low[0].lower() == "pml":
             interface = self.x[self.n_pml]
             L = interface - self.x[0]
-            if self.hi == 0:
-                self.pml_hi = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.pml_hi is None:
+                self.pml_hi = -(self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             self.alpha_max = self.alpha_factor * self.pml_hi
             sx[0 : self.n_pml] = self.pml_func(
                 self.pml_hi, self.pml_lo, self.n_pml
@@ -308,8 +306,8 @@ class BCsMixin:
         if self.bc_low[1].lower() == "pml":
             interface = self.y[self.n_pml]
             L = interface - self.y[0]
-            if self.hi == 0:
-                self.pml_hi = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.pml_hi is None:
+                self.pml_hi = -(self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             self.alpha_max = self.alpha_factor * self.pml_hi
             sy[0 : self.n_pml] = self.pml_func(
                 self.pml_hi, self.pml_lo, self.n_pml
@@ -340,8 +338,8 @@ class BCsMixin:
         if self.bc_low[2].lower() == "pml":
             interface = self.z[self.n_pml]
             L = interface - self.z[0]
-            if self.hi == 0:
-                self.pml_hi = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.pml_hi is None:
+                self.pml_hi = -(self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             self.alpha_max = self.alpha_factor * self.pml_hi
             sz[0 : self.n_pml] = self.pml_func(
                 self.pml_hi, self.pml_lo, self.n_pml
@@ -372,8 +370,8 @@ class BCsMixin:
         if self.bc_high[0].lower() == "pml":
             interface = self.x[-1-self.n_pml]
             L = self.x[-1] - interface
-            if self.hi == 0:
-                self.pml_hi = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.pml_hi is None:
+                self.pml_hi = -(self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             self.alpha_max = self.alpha_factor * self.pml_hi
             sx[-self.n_pml :] = self.pml_func(
                 self.pml_lo, self.pml_hi, self.n_pml
@@ -405,8 +403,8 @@ class BCsMixin:
         if self.bc_high[1].lower() == "pml":
             interface = self.y[-1-self.n_pml]
             L = self.y[-1] - interface
-            if self.hi == 0:
-                self.pml_hi = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.pml_hi is None:
+                self.pml_hi = -(self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             self.alpha_max = self.alpha_factor * self.pml_hi
             sy[-self.n_pml :] = self.pml_func(
                 self.pml_lo, self.pml_hi, self.n_pml
@@ -438,8 +436,8 @@ class BCsMixin:
         if self.bc_high[2].lower() == "pml":
             interface = self.z[-1-self.n_pml]
             L = self.z[-1] - interface
-            if self.hi == 0:
-                self.pml_hi = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            if self.pml_hi is None:
+                self.pml_hi = -(self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             self.alpha_max = self.alpha_factor * self.pml_hi
             sz[-self.n_pml :] = self.pml_func(
                 self.pml_lo, self.pml_hi, self.n_pml
