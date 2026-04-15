@@ -551,7 +551,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     self.dtxy = gpu_sparse_mat(self.dtxy)
                     self.dtxz = gpu_sparse_mat(self.dtxz)
                     self.dtyz = gpu_sparse_mat(self.dtyz)
-                    self.dtyx = gpu_sparse_mat(self.dtyx),
+                    self.dtyx = gpu_sparse_mat(self.dtyx)
                     self.dtzx = gpu_sparse_mat(self.dtzx)
                     self.dtzy = gpu_sparse_mat(self.dtzy)
                     self.pml_b.to_gpu()
