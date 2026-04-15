@@ -270,14 +270,21 @@ class GridFIT3D:
         )
 
         self.L = Field(self.Nx, self.Ny, self.Nz)
+        self.iL = Field(self.Nx, self.Ny, self.Nz)
         self.L.field_x = X[1:, 1:, 1:] - X[:-1, :-1, :-1]
         self.L.field_y = Y[1:, 1:, 1:] - Y[:-1, :-1, :-1]
         self.L.field_z = Z[1:, 1:, 1:] - Z[:-1, :-1, :-1]
-
+        self.iL.field_x = np.divide(1.0, self.L.field_x)
+        self.iL.field_y = np.divide(1.0, self.L.field_y)
+        self.iL.field_z = np.divide(1.0, self.L.field_z)
+        self.A = Field(self.Nx, self.Ny, self.Nz)
         self.iA = Field(self.Nx, self.Ny, self.Nz)
-        self.iA.field_x = np.divide(1.0, self.L.field_y * self.L.field_z)
-        self.iA.field_y = np.divide(1.0, self.L.field_x * self.L.field_z)
-        self.iA.field_z = np.divide(1.0, self.L.field_x * self.L.field_y)
+        self.A.field_x = self.L.field_y * self.L.field_z
+        self.A.field_y = self.L.field_x * self.L.field_z
+        self.A.field_z =  self.L.field_x * self.L.field_y
+        self.iA.field_x = np.divide(1.0, self.A.field_x)
+        self.iA.field_y = np.divide(1.0, self.A.field_y)
+        self.iA.field_z = np.divide(1.0, self.A.field_z)
 
         # tilde grid ~G
         self.tx = (self.x[1:] + self.x[:-1]) / 2
@@ -291,23 +298,33 @@ class GridFIT3D:
         tX, tY, tZ = np.meshgrid(self.tx, self.ty, self.tz, indexing="ij")
 
         self.tL = Field(self.Nx, self.Ny, self.Nz)
+        self.itL = Field(self.Nx, self.Ny, self.Nz)
         self.tL.field_x = tX[1:, 1:, 1:] - tX[:-1, :-1, :-1]
         self.tL.field_y = tY[1:, 1:, 1:] - tY[:-1, :-1, :-1]
         self.tL.field_z = tZ[1:, 1:, 1:] - tZ[:-1, :-1, :-1]
-
+        self.itL.field_x = np.divide(1.0, self.tL.field_x, out=np.zeros_like(self.tL.field_x), where=self.tL.field_x != 0)
+        self.itL.field_y = np.divide(1.0, self.tL.field_y, out=np.zeros_like(self.tL.field_y), where=self.tL.field_y != 0)
+        self.itL.field_z = np.divide(1.0, self.tL.field_z, out=np.zeros_like(self.tL.field_z), where=self.tL.field_z != 0)
+        self.tA = Field(self.Nx, self.Ny, self.Nz)
         self.itA = Field(self.Nx, self.Ny, self.Nz)
         aux = self.tL.field_y * self.tL.field_z
+        self.tA.field_x = aux
         self.itA.field_x = np.divide(
             1.0, aux, out=np.zeros_like(aux), where=aux != 0
         )
         aux = self.tL.field_x * self.tL.field_z
+        self.tA.field_y = aux
         self.itA.field_y = np.divide(
             1.0, aux, out=np.zeros_like(aux), where=aux != 0
         )
         aux = self.tL.field_x * self.tL.field_y
+        self.tA.field_z = aux
         self.itA.field_z = np.divide(
             1.0, aux, out=np.zeros_like(aux), where=aux != 0
         )
+        self.iV = np.divide(1.0, self.L.field_x * self.L.field_y * self.L.field_z)
+        aux = self.tL.field_x * self.tL.field_y * self.tL.field_z
+        self.itV = np.divide(1.0, aux, out=np.zeros_like(aux), where=aux != 0)
         del aux
 
     def _mpi_initialize(self):

@@ -13,6 +13,7 @@ from scipy.constants import epsilon_0 as eps_0
 from scipy.constants import mu_0 as mu_0
 from scipy.sparse import csc_matrix as sparse_mat
 from scipy.sparse import diags, hstack, vstack
+from scipy.sparse.linalg import cg
 
 from .boundaries import BCsMixin
 from .field import Field
@@ -56,8 +57,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         verbose=1,
         kappa_max=5,
         alpha_factor=0.1,
-        sigma_factor = 1,
-        pml_exp = 3,
+        pml_exp = 2,
+        cleaning = None,
     ):
         """
         3D time-domain electromagnetic solver based on the Finite Integration
@@ -131,6 +132,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.use_mpi = use_mpi
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
+        self.cleaning = cleaning
         self.use_conductivity = (
             False  # Will turn true with conductive material or pml
         )
@@ -157,9 +159,15 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.z = self.grid.z[:-1] + self.dz / 2
 
         self.L = self.grid.L
+        self.iL = self.grid.iL
         self.iA = self.grid.iA
+        self.A = self.grid.A
+        self.iV = self.grid.iV
         self.tL = self.grid.tL
+        self.itL = self.grid.itL
         self.itA = self.grid.itA
+        self.tA = self.grid.tA
+        self.itV = self.grid.itV
         self.update_logger(["grid", "background"])
 
         # Wake computation
@@ -204,19 +212,30 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.Ds = diags(
             self.L.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
+        self.iDs = diags(
+            self.iL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
         self.iDa = diags(
             self.iA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
+        self.Da = diags(
+            self.A.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
 
         # tilde grid
         self.tDs = diags(
             self.tL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
+        self.itDs = diags(
+            self.itL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
         self.itDa = diags(
             self.itA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
-
-        # Curl matrix
+        self.tDa = diags(
+            self.tA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
+        )
+        
         self.C = vstack(
             [
                 hstack([sparse_mat((N, N)), -self.Pz, self.Py]),
@@ -276,14 +295,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.activate_pml:
             if verbose:
                 print("Filling PML sigmas...")
-            self.one_step = self._one_step_cpml
-            self.sigma_factor = sigma_factor
             self.pml_exp = pml_exp
             self.n_pml = n_pml
             self.kappa_max = kappa_max
             self.alpha_factor = alpha_factor
             self._initialize_PML()
-            self.update_logger(["n_pml", "kappa_max", "alpha_factor", "sigma_factor", "pml_exp"])
+            self.update_logger(["n_pml", "kappa_max", "alpha_factor", "pml_exp"])
             self.one_step = self._one_step_cpml
 
         # Timestep calculation
@@ -331,7 +348,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
 
-        # Matrices for lengths and areas for split field calculations
+        # Matrices for lengths and areas for PML with split fields
         if self.activate_pml:
 
             self.tLx = diags(
@@ -361,6 +378,18 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.Lz = diags(
                 self.L.field_z, shape=(N, N), dtype=self.dtype
             )
+            self.itLz = diags(
+                self.itL.field_z, shape=(N, N), dtype=self.dtype
+            )
+            self.Az = diags(
+                self.A.field_z, shape=(N, N), dtype=self.dtype
+            )
+            self.tAz = diags(
+                self.tA.field_z, shape=(N, N), dtype=self.dtype
+            )
+            self.iLz = diags(
+                self.iL.field_z, shape=(N, N), dtype=self.dtype
+            )
             self.itAx = diags(
                 self.itA.field_x, shape=(N, N), dtype=self.dtype
             )
@@ -369,6 +398,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             )
             self.itAz = diags(
                 self.itA.field_z, shape=(N, N), dtype=self.dtype
+            )
+            self.iDv = diags(
+                self.iV, shape=(N, N), dtype=self.dtype
+            )
+            self.itDv = diags(
+                self.itV, shape=(N, N), dtype=self.dtype
             )
             self.ikapx = diags(
                 1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype
@@ -384,19 +419,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.Py = self.ikapy * self.Py
             self.Pz = self.ikapz * self.Pz            
 
-            self.dxy = self.iAx * self.Py * self.Lz
-            self.dxz = self.iAx * self.Pz * self.Ly
-            self.dyz = self.iAy * self.Pz * self.Lx
-            self.dyx = self.iAy * self.Px * self.Lz
-            self.dzx = self.iAz * self.Px * self.Ly
-            self.dzy = self.iAz * self.Py * self.Lx
+            self.dxy = self.iAx * self.Py * self.Lz * self.Dbc_z
+            self.dxz = self.iAx * self.Pz * self.Ly * self.Dbc_y
+            self.dyz = self.iAy * self.Pz * self.Lx * self.Dbc_x
+            self.dyx = self.iAy * self.Px * self.Lz * self.Dbc_z
+            self.dzx = self.iAz * self.Px * self.Ly * self.Dbc_y
+            self.dzy = self.iAz * self.Py * self.Lx * self.Dbc_x
 
-            self.dtxy = self.itAx * -self.Py.transpose() * self.tLz
-            self.dtxz = self.itAx * -self.Pz.transpose() * self.tLy
-            self.dtyz = self.itAy * -self.Pz.transpose() * self.tLx
-            self.dtyx = self.itAy * -self.Px.transpose() * self.tLz
-            self.dtzx = self.itAz * -self.Px.transpose() * self.tLy
-            self.dtzy = self.itAz * -self.Py.transpose() * self.tLx
+            self.dtxy = self.itAx * -self.Dbc_z.transpose() * self.Py.transpose() * self.tLz
+            self.dtxz = self.itAx * -self.Dbc_y.transpose() * self.Pz.transpose() * self.tLy
+            self.dtyz = self.itAy * -self.Dbc_x.transpose() * self.Pz.transpose() * self.tLx
+            self.dtyx = self.itAy * -self.Dbc_z.transpose() * self.Px.transpose() * self.tLz
+            self.dtzx = self.itAz * -self.Dbc_y.transpose() * self.Px.transpose() * self.tLy
+            self.dtzy = self.itAz * -self.Dbc_x.transpose() * self.Py.transpose() * self.tLx
 
             self.pml_b = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
@@ -405,20 +440,66 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
             )
 
-            oneField = Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype).toarray()
-            self.pml_b.fromarray(np.exp(
-                -(self.sigma.toarray() *  1.0 / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0)
-                * self.dt
-            ))
+            oneField = np.ones(self.N * 3, dtype=self.dtype)
+            sigma_arr = self.sigma.toarray()
+            kappa_arr = self.kappa.toarray()
+            alpha_arr = self.alpha.toarray()
 
-            self.pml_c.toarray()[self.alpha_mask.toarray()] = (
-                self.sigma.toarray() / (self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()) 
-                * (self.pml_b.toarray() - oneField))[self.alpha_mask.toarray()]
+            self.pml_b.fromarray(np.exp(-(sigma_arr / (kappa_arr * eps_0) + alpha_arr / eps_0)* self.dt))
+
+            # Keep CPML active also for alpha=0; c must still be non-zero in PML.
+            denom = sigma_arr + kappa_arr * alpha_arr
+            ratio = np.divide(sigma_arr, denom, out=np.zeros_like(sigma_arr), where=denom != 0,)
+            self.pml_c.fromarray(ratio * (self.pml_b.toarray() - oneField))
 
             self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+
+            if self.cleaning is not None:
+                # Topological operators
+                self.S = hstack([self.Px, self.Py, self.Pz], dtype=self.dtype) # topological divergence operator for b
+                self.S = self.S# * self.Dbc
+                self.tS = hstack([self.Px.transpose(), self.Py.transpose(), self.Pz.transpose()], dtype=self.dtype) # topological divergence operator for e
+                self.tS = self.tS# * self.Dbc.transpose()
+
+                mask_pml = Field(self.Nx, self.Ny, self.Nz, dtype=bool, use_ones = False)
+                mask_pml[:,:,:self.n_pml +1 , 'z'] = True
+                mask_pml[:,:,-self.n_pml - 2:, 'z'] = True
+                self.pois_mask = diags(
+                    mask_pml.toarray(), shape=(3*self.N, 3*self.N), dtype=bool
+                )
+
+                # Poisson cleaning operators
+                self.rho = np.zeros(self.N, dtype=self.dtype)
+                self.Div = (self.itDv @ self.tS @ self.tDa) @ self.pois_mask
+                self.Grad = (self.iDs @ self.tS.transpose())
+                self.Lag = self.Div @ self.Grad
+
+                #Plot variables
+                self.correct = np.zeros(self.N, dtype=self.dtype)
+                self.phi = np.zeros(self.N, dtype=self.dtype)
+
+                # self.zDiv = self.iDv @ self.Pz.transpose() @ self.tAz
+                # self.zGrad = self.iLz @ self.Pz
+                # self.zLag = self.zDiv @ self.zGrad
+
+                # mask_pml = Field(self.Nx, self.Ny, self.Nz, dtype=bool, use_ones = False)
+                # mask_pml[:,:,:self.n_pml + 1, 'z'] = True
+                # mask_pml[:,:,-self.n_pml - 2:, 'z'] = True
+                # self.pois_mask = diags(
+                #     mask_pml.field_z, shape=(self.N, self.N), dtype=bool
+                # )
+                
+                # self.zDiv = self.pois_mask @ self.zDiv
+                # self.zGrad = self.pois_mask @ self.zGrad
+                # self.Lagz = self.zDiv @ self.zGrad
+
+                # Hyperbolic cleaning auxiliary fields
+                self.F = np.zeros(self.N, dtype=self.dtype)
+        
+                # Curl matrix
 
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = (
@@ -468,7 +549,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     self.dtxy = gpu_sparse_mat(self.dtxy)
                     self.dtxz = gpu_sparse_mat(self.dtxz)
                     self.dtyz = gpu_sparse_mat(self.dtyz)
-                    self.dtyx = gpu_sparse_mat(self.dtyx)
+                    self.dtyx = gpu_sparse_mat(self.dtyx),
                     self.dtzx = gpu_sparse_mat(self.dtzx)
                     self.dtzy = gpu_sparse_mat(self.dtzy)
                     self.pml_b.to_gpu()
@@ -553,15 +634,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
+            if self.cleaning is not None:
+                self.n = 0
             if self.verbose>1:
                     print("Starting time-stepping with CPML...")
     
-        dxyEz = self.dxy @ self.E.field_z
-        dxzEy = self.dxz @ self.E.field_y
-        dyxEz = self.dyx @ self.E.field_z
-        dyzEx = self.dyz @ self.E.field_x
-        dzxEy = self.dzx @ self.E.field_y
-        dzyEx = self.dzy @ self.E.field_x
+        dxyEz = self.dxy * self.E.field_z
+        dxzEy = self.dxz * self.E.field_y
+        dyxEz = self.dyx * self.E.field_z
+        dyzEx = self.dyz * self.E.field_x
+        dzxEy = self.dzx * self.E.field_y
+        dzyEx = self.dzy * self.E.field_x
         
         self.psiHa.field_x = self.pml_b.field_y * self.psiHa.field_x + self.pml_c.field_y * dxyEz
         self.psiHb.field_x = self.pml_b.field_z * self.psiHb.field_x + self.pml_c.field_z * dxzEy
@@ -577,12 +660,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * (dzxEy - dzyEx)
         ) - self.dt * self.imu.field_z * (self.psiHa.field_z - self.psiHb.field_z)
 
-        dtxyHz = self.dtxy @ self.H.field_z
-        dtxzHy = self.dtxz @ self.H.field_y
-        dtyxHz = self.dtyx @ self.H.field_z
-        dtyzHx = self.dtyz @ self.H.field_x
-        dtzxHy = self.dtzx @ self.H.field_y
-        dtzyHx = self.dtzy @ self.H.field_x
+        dtxyHz = self.dtxy * self.H.field_z
+        dtxzHy = self.dtxz * self.H.field_y
+        dtyxHz = self.dtyx * self.H.field_z
+        dtyzHx = self.dtyz * self.H.field_x
+        dtzxHy = self.dtzx * self.H.field_y
+        dtzyHx = self.dtzy * self.H.field_x
 
         self.psiEa.field_x = self.pml_b.field_y * self.psiEa.field_x + self.pml_c.field_y * dtxyHz
         self.psiEb.field_x = self.pml_b.field_z * self.psiEb.field_x + self.pml_c.field_z * dtxzHy
@@ -599,91 +682,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                             + self.dt * self.ieps.field_y * (self.psiEa.field_y - self.psiEb.field_y))            
         self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                             - self.dt * self.ieps.field_z * self.J.field_z
-                            + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))  
-    
+                            + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))
 
+        if self.cleaning is not None:
+            self._apply_cleaning()
+
+        # soft source
         Jtemp = self.sigma.toarray() * self.E.toarray()
         dJ = (Jtemp - self.J_old)
         self.J.fromarray(self.J.toarray() + dJ)
         self.J_old = Jtemp
-
-    def _one_step_pml(self):
-        # Trying to reduce the complexity by dividing through the lengths instead of multiplying with the lengths and dividing by the areas. Not working yet!
-        if self.step_0:
-            self._set_ghosts_to_0()
-            self.J_old = np.zeros_like(self.J.toarray())
-            self.step_0 = False
-
-        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_z - 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_y
-                            - (self.psiHxz - self.psiHxy))
-        )
-        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_x - 1.0 / (self.kappa.field_x * self.L.field_x) * self.Px * self.E.field_z 
-                            - (self.psiHyx - self.psiHyz))
-        )            
-        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( 1.0 / (self.kappa.field_x * self.L.field_x) * self.Px * self.E.field_y - 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_x 
-                            - (self.psiHzy - self.psiHzx))
-        )            
-
-        self.psiHxy = self.by * self.psiHxy + self.cy * self.Pz * 1.0 / (self.kappa.field_z * self.L.field_z) * self.E.field_y
-        self.psiHxz = self.bz * self.psiHxz + self.cz * self.Py * 1.0 / (self.kappa.field_y * self.L.field_y) * self.E.field_z
-        self.psiHyx = self.bx * self.psiHyx + self.cx * self.Pz * 1.0 / (self.kappa.field_z * self.L.field_z) * self.E.field_x 
-        self.psiHyz = self.bz * self.psiHyz + self.cz * self.Px * 1.0 / (self.kappa.field_x * self.L.field_x) * self.E.field_z
-        self.psiHzx = self.bx * self.psiHzx + self.cx * self.Py * 1.0 / (self.kappa.field_y * self.L.field_y) * self.E.field_x
-        self.psiHzy = self.by * self.psiHzy + self.cy * self.Px * 1.0 / (self.kappa.field_x * self.L.field_x) * self.E.field_y
-
-        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( 1.0 / self.kappa.field_y * self.itL.field_y * self.Py * self.H.field_z - 1.0 / self.kappa.field_z * self.itL.field_z * self.Pz * self.H.field_y
-                            - (self.psiExz - self.psiExy) - self.J.field_x)
-        )
-        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( 1.0 / self.kappa.field_z * self.itL.field_z * self.Pz * self.H.field_x - 1.0 / self.kappa.field_x * self.itL.field_x * self.Px * self.H.field_z 
-                            - (self.psiEyx - self.psiEyz) - self.J.field_y)
-        )            
-        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( 1.0 / self.kappa.field_x * self.itL.field_x * self.Px * self.H.field_y - 1.0 / self.kappa.field_y * self.itL.field_y * self.Py * self.H.field_x 
-                            - (self.psiEzy - self.psiEzx) - self.J.field_z)
-        )
-
-        self.psiExy = self.by * self.psiExy + self.cy * self.Pz * 1.0 / (self.kappa.field_z) * self.itL.field_z * self.H.field_y
-        self.psiExz = self.bz * self.psiExz + self.cz * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_z
-        self.psiEyx = self.bx * self.psiEyx + self.cx * self.Pz * 1.0 / (self.kappa.field_z) * self.itL.field_z * self.H.field_x 
-        self.psiEyz = self.bz * self.psiEyz + self.cz * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_z
-        self.psiEzx = self.bx * self.psiEzx + self.cx * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_x
-        self.psiEzy = self.by * self.psiEzy + self.cy * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_y
-        
-        Jtemp = self.sigma.toarray() * self.E.toarray()
-        dJ = (Jtemp - self.J_old)
-        self.J.fromarray(self.J.toarray() + dJ)
-        self.J_old = Jtemp
-
-    def _one_step_split(self):
-        if self.step_0:
-            self._set_ghosts_to_0()
-            self.step_0 = False
-            self._attrcleanup()
-            self.J_old = np.zeros_like(self.J.toarray())
-
-        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( self.dxy @ self.E.field_z - self.dxz @ self.E.field_y)
-        )
-        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( self.dyz @ self.E.field_x - self.dyx @ self.E.field_z)
-        )            
-        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( self.dzx @ self.E.field_y - self.dzy @ self.E.field_x)
-        )         
-
-
-        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( self.dtxy @ self.H.field_z - self.dtxz @ self.H.field_y)
-                            - self.dt * self.ieps.field_x * self.J.field_x
-        )
-        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( self.dtyz @ self.H.field_x - self.dtyx @ self.H.field_z) 
-                            - self.dt * self.ieps.field_y * self.J.field_y
-        )            
-        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( self.dtzx @ self.H.field_y - self.dtzy @ self.H.field_x) 
-                            - self.dt * self.ieps.field_z * self.J.field_z
-        )    
-
-        # include current computation
-        if self.use_conductivity:
-            Jtemp = self.sigma.toarray() * self.E.toarray()
-            dJ = (Jtemp - self.J_old)
-            self.J.fromarray(self.J.toarray() + dJ)
-            self.J_old = Jtemp
 
     def _one_step(self):
         if self.step_0:
@@ -717,8 +725,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
-        if self.activate_pml:
 
+        if self.activate_pml:
 
             dxyEz = dot_product_mkl(self.dxy, self.E.field_z)
             dxzEy = dot_product_mkl(self.dxz, self.E.field_y)
@@ -727,7 +735,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dzxEy = dot_product_mkl(self.dzx, self.E.field_y)
             dzyEx = dot_product_mkl(self.dzy, self.E.field_x)
             
-            self.psiHa.field_x = self.pml_b.field_x * self.psiHa.field_x + self.pml_c.field_x * dxyEz
+            self.psiHa.field_x = self.pml_b.field_y * self.psiHa.field_x + self.pml_c.field_y * dxyEz
             self.psiHb.field_x = self.pml_b.field_z * self.psiHb.field_x + self.pml_c.field_z * dxzEy
             self.psiHb.field_y = self.pml_b.field_x * self.psiHb.field_y + self.pml_c.field_x * dyxEz
             self.psiHa.field_y = self.pml_b.field_z * self.psiHa.field_y + self.pml_c.field_z * dyzEx
@@ -788,10 +796,48 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
             # include current computation
             if self.use_conductivity:
-                Jtemp = self.sigma.toarray() * self.E.toarray()# * self.damp.toarray()
+                Jtemp = self.sigma.toarray() * self.E.toarray()
                 dJ = (Jtemp - self.J_old)
                 self.J.fromarray(self.J.toarray() + dJ)
                 self.J_old = Jtemp
+
+    def _apply_cleaning(self):
+
+        self.n += 1
+        self.divE = self.Div @ self.E.toarray()
+        self.rho -= self.dt * (self.Div @ self.J.toarray())
+        self.rhs = self.divE - self.rho / eps_0
+
+        # Poisson correction for charge conservation
+        if self.cleaning.lower() == "poisson":
+            if self.n % 100 == 0:
+                print("Lag nnz:", self.Lag.nnz)
+                print("Lag norm:", np.linalg.norm(self.Lag.data))
+                print("rhs norm:", np.linalg.norm(self.rhs))
+                self.phi, info = cg(self.Lag, self.rhs, maxiter=1000)
+                if info != 0:
+                    print(f'[!] Poisson solver did not converge at step {self.n}, info: {info}')
+                print("CG info:", info)
+                print("phi norm:", np.linalg.norm(self.phi))
+                print("residual:", np.linalg.norm(self.Lag @ self.phi - self.rhs))
+                self.correct = self.Grad @ self.phi
+                self.E.fromarray(self.E.toarray() - self.correct)
+
+            # Ez only
+            if 1 == 2:
+                self.divEz = self.zDiv @ self.E.field_z
+                self.rho -= self.dt * (self.zDiv @ self.J.field_z)
+                self.rhosz = self.zDiv @ self.E.field_z - self.rho / eps_0
+                phiz, info = cg(self.zLag, self.rhosz, maxiter=1000)
+                if info != 0 and self.verbose > 1:
+                    print(f'[!] Poisson solver for Ez did not converge at step {self.n}, info: {info}')
+                self.E.field_z = self.E.field_z - self.zGrad @ phiz
+
+        # Hyperbolic correction for charge conservation
+        if self.cleaning.lower() == "hyperbolic":
+            self.F += self.dt * self.rhs
+            self.correct = self.dt * self.iDmu * (self.Grad @ self.F)
+            self.E.fromarray(self.E.toarray() + self.correct)
 
     def _mpi_initialize(self):
         self.comm = self.grid.comm
