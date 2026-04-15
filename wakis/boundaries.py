@@ -248,17 +248,19 @@ class BCsMixin:
         # Initialize
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
         kapx, kapy, kapz = np.ones(self.Nx), np.ones(self.Ny), np.ones(self.Nz)
+        alpx, alpy, alpz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
         R0 = 1e-8  # target reflection coefficient for PML design
-        eta_0 = 376.730313412    
+        eta_0 = 376.730313412
+        alpha_grading = "linear"    
         self.pml_lo = 5.0e-3
-        pml_hi_dict = {
-            6: 1.2,
-            8: 0.65,
-            10: 0.45,
-            12: 0.35,
-        }
-        if self.pml_hi is None and self.n_pml in pml_hi_dict:
-            self.pml_hi = pml_hi_dict[self.n_pml]
+        # pml_hi_dict = {
+        #     6: 1.2,
+        #     8: 0.65,
+        #     10: 0.45,
+        #     12: 0.35,
+        # }
+        # if self.pml_hi is None and self.n_pml in pml_hi_dict:
+        #     self.pml_hi = pml_hi_dict[self.n_pml]
         self.pml_func = np.geomspace
         self.kappa = (
             Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
@@ -281,6 +283,10 @@ class BCsMixin:
                 self.pml_hi, self.pml_lo, self.n_pml
             )
             kapx[0 : self.n_pml] = self.pml_func(1.0, self.kappa_max, self.n_pml)
+            if alpha_grading == "linear":
+                alpx[0 : self.n_pml] = np.linspace(self.alpha_max, self.alpha_max * 0.1, self.n_pml)
+            else:
+                alpx[0 : self.n_pml] = np.ones(self.n_pml) * self.alpha_max
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the yz plane
@@ -299,7 +305,7 @@ class BCsMixin:
                         sigma_0_pml + sigma_mult_pml * sx[i]
                     )
                     self.kappa[i, :, :, d] = kapx[i]
-                    self.alpha[i, :, :, d] = self.alpha_max
+                    self.alpha[i, :, :, d] = alpx[i]
                     if self.alpha_max > 0:
                         self.alpha_mask[i, :, :, d] = True
 
@@ -313,6 +319,10 @@ class BCsMixin:
                 self.pml_hi, self.pml_lo, self.n_pml
             )
             kapy[0 : self.n_pml] = self.pml_func(1.0, self.kappa_max, self.n_pml)
+            if alpha_grading == "linear":
+                alpy[0 : self.n_pml] = np.linspace(self.alpha_max, self.alpha_max * 0.1, self.n_pml)
+            else:
+                alpy[0 : self.n_pml] = np.ones(self.n_pml) * self.alpha_max
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xz plane
@@ -331,7 +341,7 @@ class BCsMixin:
                         sigma_0_pml + sigma_mult_pml * sy[j]
                     )
                     self.kappa[:, j, :, d] = kapy[j]
-                    self.alpha[:, j, :, d] = self.alpha_max
+                    self.alpha[:, j, :, d] = alpy[j]
                     if self.alpha_max > 0:
                         self.alpha_mask[:, j, :, d] = True
 
@@ -345,6 +355,10 @@ class BCsMixin:
                 self.pml_hi, self.pml_lo, self.n_pml
             )
             kapz[0 : self.n_pml] = self.pml_func(1.0, self.kappa_max, self.n_pml)
+            if alpha_grading == "linear":
+                alpz[0 : self.n_pml] = np.linspace(self.alpha_max, self.alpha_max * 0.1, self.n_pml)
+            else:
+                alpz[0 : self.n_pml] = np.ones(self.n_pml) * self.alpha_max
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xy plane
@@ -363,7 +377,7 @@ class BCsMixin:
                         sigma_0_pml + sigma_mult_pml * sz[k]
                     )
                     self.kappa[:, :, k, d] = kapz[k]
-                    self.alpha[:, :, k, d] = self.alpha_max
+                    self.alpha[:, :, k, d] = alpz[k]
                     if self.alpha_max > 0:
                         self.alpha_mask[:, :, k, d] = True
 
@@ -377,6 +391,10 @@ class BCsMixin:
                 self.pml_lo, self.pml_hi, self.n_pml
             )
             kapx[-self.n_pml :] = self.pml_func(1.0, self.kappa_max, self.n_pml)
+            if alpha_grading == "linear":
+                alpx[-self.n_pml :] = np.linspace(self.alpha_max, self.alpha_max * 0.1, self.n_pml)
+            else:
+                alpx[-self.n_pml :] = np.ones(self.n_pml) * self.alpha_max
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the yz plane
@@ -396,7 +414,7 @@ class BCsMixin:
                         sigma_0_pml + sigma_mult_pml * sx[-i]
                     )
                     self.kappa[-i, :, :, d] = kapx[-i]
-                    self.alpha[-i, :, :, d] = self.alpha_max
+                    self.alpha[-i, :, :, d] = alpx[-i]
                     if self.alpha_max > 0:
                         self.alpha_mask[-i, :, :, d] = True
 
@@ -410,6 +428,10 @@ class BCsMixin:
                 self.pml_lo, self.pml_hi, self.n_pml
             )
             kapy[-self.n_pml :] = self.pml_func(1.0, self.kappa_max, self.n_pml)
+            if alpha_grading == "linear":
+                alpy[-self.n_pml :] = np.linspace(self.alpha_max, self.alpha_max * 0.1, self.n_pml)
+            else:
+                alpy[-self.n_pml :] = np.ones(self.n_pml) * self.alpha_max
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xz plane
@@ -429,7 +451,7 @@ class BCsMixin:
                         sigma_0_pml + sigma_mult_pml * sy[-j]
                     )
                     self.kappa[:, -j, :, d] = kapy[-j]
-                    self.alpha[:, -j, :, d] = self.alpha_max
+                    self.alpha[:, -j, :, d] = alpy[-j]
                     if self.alpha_max > 0:
                         self.alpha_mask[:, -j, :, d] = True
 
@@ -443,6 +465,10 @@ class BCsMixin:
                 self.pml_lo, self.pml_hi, self.n_pml
             )
             kapz[-self.n_pml :] = self.pml_func(1.0, self.kappa_max, self.n_pml)
+            if alpha_grading == "linear":
+                alpz[-self.n_pml :] = np.linspace(self.alpha_max, self.alpha_max * 0.1, self.n_pml)
+            else:
+                alpz[-self.n_pml :] = np.ones(self.n_pml) * self.alpha_max
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xy plane
@@ -462,7 +488,7 @@ class BCsMixin:
                         sigma_0_pml + sigma_mult_pml * sz[-k]
                     )
                     self.kappa[:, :, -k, d] = kapz[-k]
-                    self.alpha[:, :, -k, d] = self.alpha_max
+                    self.alpha[:, :, -k, d] = alpz[-k]
                     if self.alpha_max > 0:
                         self.alpha_mask[:, :, -k, d] = True
 
