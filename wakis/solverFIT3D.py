@@ -302,7 +302,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.kappa_max = kappa_max
             self.alpha_factor = alpha_factor
             self._initialize_PML()
-            self.update_logger(["n_pml", "kappa_max", "alpha_factor", "pml_exp"])
+            self.update_logger(["n_pml", "kappa_max", "alpha_factor", "pml_exp", "pml_hi"])
             self.one_step = self._one_step_cpml
 
         # Timestep calculation
