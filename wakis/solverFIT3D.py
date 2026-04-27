@@ -384,19 +384,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.Py = self.ikapy * self.Py
             self.Pz = self.ikapz * self.Pz            
 
-            self.dxy = self.iAx * self.Py * self.Lz
-            self.dxz = self.iAx * self.Pz * self.Ly
-            self.dyz = self.iAy * self.Pz * self.Lx
-            self.dyx = self.iAy * self.Px * self.Lz
-            self.dzx = self.iAz * self.Px * self.Ly
-            self.dzy = self.iAz * self.Py * self.Lx
+            self.dxy = self.iAx * self.Py * self.Lz * self.Dbc_z
+            self.dxz = self.iAx * self.Pz * self.Ly * self.Dbc_y
+            self.dyz = self.iAy * self.Pz * self.Lx * self.Dbc_x
+            self.dyx = self.iAy * self.Px * self.Lz * self.Dbc_z
+            self.dzx = self.iAz * self.Px * self.Ly * self.Dbc_y
+            self.dzy = self.iAz * self.Py * self.Lx * self.Dbc_x
 
-            self.dtxy = self.itAx * -self.Py.transpose() * self.tLz
-            self.dtxz = self.itAx * -self.Pz.transpose() * self.tLy
-            self.dtyz = self.itAy * -self.Pz.transpose() * self.tLx
-            self.dtyx = self.itAy * -self.Px.transpose() * self.tLz
-            self.dtzx = self.itAz * -self.Px.transpose() * self.tLy
-            self.dtzy = self.itAz * -self.Py.transpose() * self.tLx
+            self.dtxy = self.itAx * self.Dbc_z.transpose() * -self.Py.transpose() * self.tLz
+            self.dtxz = self.itAx * self.Dbc_y.transpose() * -self.Pz.transpose() * self.tLy
+            self.dtyz = self.itAy * self.Dbc_x.transpose() * -self.Pz.transpose() * self.tLx
+            self.dtyx = self.itAy * self.Dbc_z.transpose() * -self.Px.transpose() * self.tLz
+            self.dtzx = self.itAz * self.Dbc_y.transpose() * -self.Px.transpose() * self.tLy
+            self.dtzy = self.itAz * self.Dbc_x.transpose() * -self.Py.transpose() * self.tLx
 
             self.pml_b = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
@@ -546,8 +546,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         )
         self.step_0 = False
 
-    # Including the convolutional terms for the CPML update equations
     def _one_step_cpml(self):
+    # Including the convolutional terms for the CPML update equations
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
@@ -556,12 +556,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             if self.verbose>1:
                     print("Starting time-stepping with CPML...")
     
-        dxyEz = self.dxy @ self.E.field_z
-        dxzEy = self.dxz @ self.E.field_y
-        dyxEz = self.dyx @ self.E.field_z
-        dyzEx = self.dyz @ self.E.field_x
-        dzxEy = self.dzx @ self.E.field_y
-        dzyEx = self.dzy @ self.E.field_x
+        dxyEz = self.dxy * self.E.field_z
+        dxzEy = self.dxz * self.E.field_y
+        dyxEz = self.dyx * self.E.field_z
+        dyzEx = self.dyz * self.E.field_x
+        dzxEy = self.dzx * self.E.field_y
+        dzyEx = self.dzy * self.E.field_x
         
         self.psiHa.field_x = self.pml_b.field_y * self.psiHa.field_x + self.pml_c.field_y * dxyEz
         self.psiHb.field_x = self.pml_b.field_z * self.psiHb.field_x + self.pml_c.field_z * dxzEy
@@ -577,12 +577,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * (dzxEy - dzyEx)
         ) - self.dt * self.imu.field_z * (self.psiHa.field_z - self.psiHb.field_z)
 
-        dtxyHz = self.dtxy @ self.H.field_z
-        dtxzHy = self.dtxz @ self.H.field_y
-        dtyxHz = self.dtyx @ self.H.field_z
-        dtyzHx = self.dtyz @ self.H.field_x
-        dtzxHy = self.dtzx @ self.H.field_y
-        dtzyHx = self.dtzy @ self.H.field_x
+        dtxyHz = self.dtxy * self.H.field_z
+        dtxzHy = self.dtxz * self.H.field_y
+        dtyxHz = self.dtyx * self.H.field_z
+        dtyzHx = self.dtyz * self.H.field_x
+        dtzxHy = self.dtzx * self.H.field_y
+        dtzyHx = self.dtzy * self.H.field_x
+
+        Jtemp = self.sigma.toarray() * self.E.toarray()
+        dJ = (Jtemp - self.J_old)
+        self.J.fromarray(self.J.toarray() + dJ)
+        self.J_old = Jtemp
 
         self.psiEa.field_x = self.pml_b.field_y * self.psiEa.field_x + self.pml_c.field_y * dtxyHz
         self.psiEb.field_x = self.pml_b.field_z * self.psiEb.field_x + self.pml_c.field_z * dtxzHy
@@ -599,91 +604,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                             + self.dt * self.ieps.field_y * (self.psiEa.field_y - self.psiEb.field_y))            
         self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                             - self.dt * self.ieps.field_z * self.J.field_z
-                            + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))  
-    
-
-        Jtemp = self.sigma.toarray() * self.E.toarray()
-        dJ = (Jtemp - self.J_old)
-        self.J.fromarray(self.J.toarray() + dJ)
-        self.J_old = Jtemp
-
-    def _one_step_pml(self):
-        # Trying to reduce the complexity by dividing through the lengths instead of multiplying with the lengths and dividing by the areas. Not working yet!
-        if self.step_0:
-            self._set_ghosts_to_0()
-            self.J_old = np.zeros_like(self.J.toarray())
-            self.step_0 = False
-
-        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_z - 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_y
-                            - (self.psiHxz - self.psiHxy))
-        )
-        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( 1.0 / (self.kappa.field_z * self.L.field_z) * self.Pz * self.E.field_x - 1.0 / (self.kappa.field_x * self.L.field_x) * self.Px * self.E.field_z 
-                            - (self.psiHyx - self.psiHyz))
-        )            
-        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( 1.0 / (self.kappa.field_x * self.L.field_x) * self.Px * self.E.field_y - 1.0 / (self.kappa.field_y * self.L.field_y) * self.Py * self.E.field_x 
-                            - (self.psiHzy - self.psiHzx))
-        )            
-
-        self.psiHxy = self.by * self.psiHxy + self.cy * self.Pz * 1.0 / (self.kappa.field_z * self.L.field_z) * self.E.field_y
-        self.psiHxz = self.bz * self.psiHxz + self.cz * self.Py * 1.0 / (self.kappa.field_y * self.L.field_y) * self.E.field_z
-        self.psiHyx = self.bx * self.psiHyx + self.cx * self.Pz * 1.0 / (self.kappa.field_z * self.L.field_z) * self.E.field_x 
-        self.psiHyz = self.bz * self.psiHyz + self.cz * self.Px * 1.0 / (self.kappa.field_x * self.L.field_x) * self.E.field_z
-        self.psiHzx = self.bx * self.psiHzx + self.cx * self.Py * 1.0 / (self.kappa.field_y * self.L.field_y) * self.E.field_x
-        self.psiHzy = self.by * self.psiHzy + self.cy * self.Px * 1.0 / (self.kappa.field_x * self.L.field_x) * self.E.field_y
-
-        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( 1.0 / self.kappa.field_y * self.itL.field_y * self.Py * self.H.field_z - 1.0 / self.kappa.field_z * self.itL.field_z * self.Pz * self.H.field_y
-                            - (self.psiExz - self.psiExy) - self.J.field_x)
-        )
-        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( 1.0 / self.kappa.field_z * self.itL.field_z * self.Pz * self.H.field_x - 1.0 / self.kappa.field_x * self.itL.field_x * self.Px * self.H.field_z 
-                            - (self.psiEyx - self.psiEyz) - self.J.field_y)
-        )            
-        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( 1.0 / self.kappa.field_x * self.itL.field_x * self.Px * self.H.field_y - 1.0 / self.kappa.field_y * self.itL.field_y * self.Py * self.H.field_x 
-                            - (self.psiEzy - self.psiEzx) - self.J.field_z)
-        )
-
-        self.psiExy = self.by * self.psiExy + self.cy * self.Pz * 1.0 / (self.kappa.field_z) * self.itL.field_z * self.H.field_y
-        self.psiExz = self.bz * self.psiExz + self.cz * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_z
-        self.psiEyx = self.bx * self.psiEyx + self.cx * self.Pz * 1.0 / (self.kappa.field_z) * self.itL.field_z * self.H.field_x 
-        self.psiEyz = self.bz * self.psiEyz + self.cz * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_z
-        self.psiEzx = self.bx * self.psiEzx + self.cx * self.Py * 1.0 / (self.kappa.field_y) * self.itL.field_y * self.H.field_x
-        self.psiEzy = self.by * self.psiEzy + self.cy * self.Px * 1.0 / (self.kappa.field_x) * self.itL.field_x * self.H.field_y
-        
-        Jtemp = self.sigma.toarray() * self.E.toarray()
-        dJ = (Jtemp - self.J_old)
-        self.J.fromarray(self.J.toarray() + dJ)
-        self.J_old = Jtemp
-
-    def _one_step_split(self):
-        if self.step_0:
-            self._set_ghosts_to_0()
-            self.step_0 = False
-            self._attrcleanup()
-            self.J_old = np.zeros_like(self.J.toarray())
-
-        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * ( self.dxy @ self.E.field_z - self.dxz @ self.E.field_y)
-        )
-        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * ( self.dyz @ self.E.field_x - self.dyx @ self.E.field_z)
-        )            
-        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * ( self.dzx @ self.E.field_y - self.dzy @ self.E.field_x)
-        )         
-
-
-        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * ( self.dtxy @ self.H.field_z - self.dtxz @ self.H.field_y)
-                            - self.dt * self.ieps.field_x * self.J.field_x
-        )
-        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * ( self.dtyz @ self.H.field_x - self.dtyx @ self.H.field_z) 
-                            - self.dt * self.ieps.field_y * self.J.field_y
-        )            
-        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * ( self.dtzx @ self.H.field_y - self.dtzy @ self.H.field_x) 
-                            - self.dt * self.ieps.field_z * self.J.field_z
-        )    
-
-        # include current computation
-        if self.use_conductivity:
-            Jtemp = self.sigma.toarray() * self.E.toarray()
-            dJ = (Jtemp - self.J_old)
-            self.J.fromarray(self.J.toarray() + dJ)
-            self.J_old = Jtemp
+                            + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))
 
     def _one_step(self):
         if self.step_0:
@@ -755,6 +676,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEa.field_z = self.pml_b.field_x * self.psiEa.field_z + self.pml_c.field_x * dtzxHy
             self.psiEb.field_z = self.pml_b.field_y * self.psiEb.field_z + self.pml_c.field_y * dtzyHx
 
+            Jtemp = self.sigma.toarray() * self.E.toarray()
+            dJ = (Jtemp - self.J_old)
+            self.J.fromarray(self.J.toarray() + dJ)
+            self.J_old = Jtemp
+
             self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                                 - self.dt * self.ieps.field_x * self.J.field_x
                                 + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
@@ -765,11 +691,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                                 - self.dt * self.ieps.field_z * self.J.field_z
                                 + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))  
         
-
-            Jtemp = self.sigma.toarray() * self.E.toarray()
-            dJ = (Jtemp - self.J_old)
-            self.J.fromarray(self.J.toarray() + dJ)
-            self.J_old = Jtemp
 
         else:       
             self.H.fromarray(

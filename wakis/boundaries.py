@@ -133,9 +133,6 @@ class BCsMixin:
 
             # Update C (columns)
             self.C = self.C * self.Dbc
-            self.Px = self.Px * self.Dbc_y * self.Dbc_z
-            self.Py = self.Py * self.Dbc_x * self.Dbc_z
-            self.Pz = self.Pz * self.Dbc_x * self.Dbc_y
 
         # Dirichlet PMC: tangential H field = 0 at boundary
         if any(
@@ -204,9 +201,6 @@ class BCsMixin:
 
             # Update C (rows)
             self.C = self.Dbc * self.C
-            self.Px = self.Dbc_z * self.Dbc_y * self.Px
-            self.Py = self.Dbc_x * self.Dbc_z * self.Py
-            self.Pz = self.Dbc_y * self.Dbc_x * self.Pz
 
         # Absorbing boundary conditions ABC
         if any(True for x in self.bc_low if x.lower() == "abc") or any(
@@ -258,7 +252,6 @@ class BCsMixin:
         # Initialize PML parameters
         if self.verbose>1:
             print("Initializing PML parameters...")
-        self.g = 2.13
         R0 = 1.0e-8        # Reflection coefficient at the interface between the PML and the main domain, controls how well the PML absorbs waves (lower is better but may require stronger conductivity)
         eta_0 = 376.730313412    
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
@@ -270,6 +263,9 @@ class BCsMixin:
         )
         self.alpha_mask = (
             Field(self.Nx, self.Ny, self.Nz, dtype=bool)
+        )
+        self.damp = (
+            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype, use_gpu=self.use_gpu)
         )
 
         # Fill
@@ -302,6 +298,7 @@ class BCsMixin:
                     self.alpha[i, :, :, d] = self.alpha_max
                     if self.alpha_max != 0:
                         self.alpha_mask[i, :, :, d] = True
+                    self.damp[i, :, :, d] = 1 - sx[i]
 
         if self.bc_low[1].lower() == "pml":
             interface = self.y[self.n_pml]
@@ -332,6 +329,7 @@ class BCsMixin:
                     self.alpha[:, j, :, d] = self.alpha_max
                     if self.alpha_max != 0:
                         self.alpha_mask[:, j, :, d] = True                    
+                    self.damp[:, j, :, d] = 1 - sy[j]
 
         if self.bc_low[2].lower() == "pml":
             interface = self.z[self.n_pml]
@@ -362,37 +360,7 @@ class BCsMixin:
                     self.alpha[:, :, k, d] = self.alpha_max
                     if self.alpha_max != 0:
                         self.alpha_mask[:, :, k, d] = True
-
-
-        # if self.bc_low[2].lower() == "pml": # geometric approach, only work with uniform grid
-        #     interface = self.z[self.n_pml]
-        #     dz_ref = self.z[self.n_pml] - self.z[self.n_pml-1]
-        #     sigma0 = -(eps_0 * c_light * np.log(self.g) * np.log(R0)) / (2 * dz_ref * (self.g**self.n_pml - 1))    #geoemetric profile
-        #     sigma_geom = np.zeros(self.n_pml)
-        #     sigma_geom[-1] = sigma0
-        #     kappa_geom = np.zeros(self.n_pml)
-        #     kappa_geom[-1] = 1
-
-        #     for i in range(self.n_pml-1):
-        #         dist = interface - self.z[i]   # distance into PML
-        #         sigma_geom[i] = sigma_geom[-1] * (self.g**(1 / dz_ref))**dist # only work with uniform grid
-        #         kappa_geom[i] = kappa_geom[-1] * ((1.2)**(1 / dz_ref))**dist
-        #     self.alpha_max = self.alpha_factor * sigma_geom[-1]    
-
-        #     for d in ["x", "y", "z"]:
-        #         ieps_0_pml = self.ieps[
-        #             self.Nx // 2, self.Ny // 2, (self.n_pml + 1), d
-        #         ]
-        #         sigma_0_pml = self.sigma[
-        #             self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
-        #         ]
-        #         for k in range(self.n_pml):
-        #             self.ieps[:, :, k, d] = ieps_0_pml
-        #             self.sigma[:, :, k, d] = sigma_0_pml + sigma_geom[k]
-        #             self.kappa[:, :, k, d] = kappa_geom[k]
-        #             self.alpha[:, :, k, d] = self.alpha_max
-        #             if self.alpha_max != 0:
-        #                 self.alpha_mask[:, :, k, d] = True                     
+                    self.damp[:, :, k, d] = 1 - sz[k]             
 
         if self.bc_high[0].lower() == "pml":
             interface = self.x[-1-self.n_pml]
@@ -423,7 +391,8 @@ class BCsMixin:
                     )
                     self.alpha[-i, :, :, d] = self.alpha_max
                     if self.alpha_max != 0:
-                        self.alpha_mask[-i, :, :, d] = True                    
+                        self.alpha_mask[-i, :, :, d] = True  
+                    self.damp[-i, :, :, d] = 1 - sx[-i]                 
 
         if self.bc_high[1].lower() == "pml":
             interface = self.y[-1-self.n_pml]
@@ -455,6 +424,7 @@ class BCsMixin:
                     self.alpha[:, -j, :, d] = self.alpha_max
                     if self.alpha_max != 0:
                         self.alpha_mask[:, -j, :, d] = True 
+                    self.damp[:, -j, :, d] = 1 - sy[-j]                
 
         if self.bc_high[2].lower() == "pml":
             interface = self.z[-1-self.n_pml]
@@ -486,40 +456,7 @@ class BCsMixin:
                     self.alpha[:, :, -k, d] = self.alpha_max
                     if self.alpha_max != 0:
                         self.alpha_mask[:, :, -k, d] = True
-
-        # if self.bc_high[2].lower() == "pml": # geometric approach, only work with uniform grid
-        #     interface = self.z[-self.n_pml-1]
-        #     dz_ref = self.z[-self.n_pml] - self.z[-self.n_pml-1]
-        #     sigma0 = -(eps_0 * c_light * np.log(self.g) * np.log(R0)) / (2 * dz_ref * (self.g**self.n_pml - 1))    #geoemetric profile
-        #     sigma_geom = np.zeros(self.n_pml)
-        #     sigma_geom[0] = sigma0
-        #     kappa_geom = np.zeros(self.n_pml)
-        #     kappa_geom[0] = 1
-
-        #     for i in range(1,self.n_pml):
-        #         dist = self.z[-self.n_pml+i] - interface  # distance into PML
-        #         #dz_k = self.z[-self.n_pml+i] - self.z[-self.n_pml+i-1]
-        #         #kappa_geom[i] = kappa_geom[i-1] * (self.g*1.1)**(dz_k / dz_ref)
-        #         #sigma_geom[i] = sigma_geom[i-1] * self.g**(dz_k / dz_ref)
-        #         sigma_geom[i] = sigma_geom[0] * (self.g**(1 / dz_ref))**dist # only work with uniform grid
-        #         kappa_geom[i] = kappa_geom[0] * ((1.2)**(1 / dz_ref))**dist
-        #     self.alpha_max = self.alpha_factor * sigma_geom[-1]    
-
-        #     for d in ["x", "y", "z"]:
-        #         ieps_0_pml = self.ieps[
-        #             self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
-        #         ]
-        #         sigma_0_pml = self.sigma[
-        #             self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
-        #         ]
-        #         for k in range(1,self.n_pml+1):
-        #             self.ieps[:, :, -k, d] = ieps_0_pml
-        #             self.sigma[:, :, -k, d] = sigma_0_pml + sigma_geom[-k]
-        #             self.kappa[:, :, -k, d] = kappa_geom[-k]
-        #             self.alpha[:, :, -k, d] = self.alpha_max
-        #             if self.alpha_max != 0:
-        #                 self.alpha_mask[:, :, -k, d] = True
-                            
+                    self.damp[:, :, -k, d] = 1 - sz[-k]
 
     def get_abc(self):
         """
