@@ -255,6 +255,7 @@ class BCsMixin:
         R0 = 1.0e-8        # Reflection coefficient at the interface between the PML and the main domain, controls how well the PML absorbs waves (lower is better but may require stronger conductivity)
         eta_0 = 376.730313412    
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        ax, ay, az = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
         self.kappa = (
             Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
         )
@@ -277,6 +278,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = interface - self.x[i]   # distance into PML
                 sx[i] = (dist / L)**self.pml_exp
+                ax[i] = (dist / L)
 
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -295,7 +297,7 @@ class BCsMixin:
                     self.kappa[i, :, :, d] = (
                         1 + (self.kappa_max - 1) * sx[i]
                     )
-                    self.alpha[i, :, :, d] = self.alpha_max
+                    self.alpha[i, :, :, d] = self.alpha_max * (1 - ax[i])
                     if self.alpha_max != 0:
                         self.alpha_mask[i, :, :, d] = True
                     self.damp[i, :, :, d] = 1 - sx[i]
@@ -308,6 +310,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = interface - self.y[i]   # distance into PML
                 sy[i] = (dist / L)**self.pml_exp
+                ay[i] = (dist / L)
 
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -326,7 +329,7 @@ class BCsMixin:
                     self.kappa[:, j, :, d] = (
                         1 + (self.kappa_max - 1) * sy[j]
                     )
-                    self.alpha[:, j, :, d] = self.alpha_max
+                    self.alpha[:, j, :, d] = self.alpha_max * (1 - ay[j])
                     if self.alpha_max != 0:
                         self.alpha_mask[:, j, :, d] = True                    
                     self.damp[:, j, :, d] = 1 - sy[j]
@@ -339,6 +342,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = interface - self.z[i]   # distance into PML
                 sz[i] = (dist / L)**self.pml_exp
+                az[i] = (dist / L)
 
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -357,7 +361,7 @@ class BCsMixin:
                     self.kappa[:, :, k, d] = (
                         1 + (self.kappa_max - 1) * sz[k]
                     )
-                    self.alpha[:, :, k, d] = self.alpha_max
+                    self.alpha[:, :, k, d] = self.alpha_max * (1 - az[k])
                     if self.alpha_max != 0:
                         self.alpha_mask[:, :, k, d] = True
                     self.damp[:, :, k, d] = 1 - sz[k]             
@@ -370,6 +374,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = self.x[-self.n_pml+i] - interface   # distance into PML
                 sx[-self.n_pml+i] = (dist / L)**self.pml_exp
+                ax[-self.n_pml+i] = (dist / L)
             
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -389,7 +394,7 @@ class BCsMixin:
                     self.kappa[-i, :, :, d] = (
                         1 + (self.kappa_max - 1) * sx[-i]
                     )
-                    self.alpha[-i, :, :, d] = self.alpha_max
+                    self.alpha[-i, :, :, d] = self.alpha_max * (1 - ax[-i])
                     if self.alpha_max != 0:
                         self.alpha_mask[-i, :, :, d] = True  
                     self.damp[-i, :, :, d] = 1 - sx[-i]                 
@@ -402,6 +407,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = self.y[-self.n_pml+i] - interface   # distance into PML
                 sy[-self.n_pml+i] = (dist / L)**self.pml_exp
+                ay[-self.n_pml+i] = (dist / L)
             
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -421,7 +427,7 @@ class BCsMixin:
                     self.kappa[:, -j, :, d] = (
                         1 + (self.kappa_max - 1) * sy[-j]
                     )
-                    self.alpha[:, -j, :, d] = self.alpha_max
+                    self.alpha[:, -j, :, d] = self.alpha_max * (1 - ay[-j])
                     if self.alpha_max != 0:
                         self.alpha_mask[:, -j, :, d] = True 
                     self.damp[:, -j, :, d] = 1 - sy[-j]                
@@ -434,6 +440,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = self.z[-self.n_pml+i] - interface   # distance into PML
                 sz[-self.n_pml+i] = (dist / L)**self.pml_exp
+                az[-self.n_pml+i] = (dist / L)
 
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
@@ -453,7 +460,7 @@ class BCsMixin:
                     self.kappa[:, :, -k, d] = (
                         1 + (self.kappa_max - 1) * sz[-k]
                     )
-                    self.alpha[:, :, -k, d] = self.alpha_max
+                    self.alpha[:, :, -k, d] = self.alpha_max * (1 - az[-k])
                     if self.alpha_max != 0:
                         self.alpha_mask[:, :, -k, d] = True
                     self.damp[:, :, -k, d] = 1 - sz[-k]
