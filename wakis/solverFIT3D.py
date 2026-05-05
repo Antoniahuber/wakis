@@ -4,6 +4,7 @@
 # ########################################### #
 
 import abc
+from tabnanny import verbose
 import time
 
 import h5py
@@ -13,6 +14,7 @@ from scipy.constants import epsilon_0 as eps_0
 from scipy.constants import mu_0 as mu_0
 from scipy.sparse import csc_matrix as sparse_mat
 from scipy.sparse import diags, hstack, vstack
+from scipy.sparse.linalg import cg
 
 from .boundaries import BCsMixin
 from .field import Field
@@ -22,7 +24,9 @@ from .plotting import PlotMixin
 from .routines import RoutinesMixin
 
 try:
+    import cupy as cp
     from cupyx.scipy.sparse import csc_matrix as gpu_sparse_mat
+    from cupyx.scipy.sparse.linalg import cg as gpu_cg
 
     imported_cupyx = True
 except ImportError:
@@ -58,6 +62,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         alpha_factor=0.1,
         sigma_factor = 1,
         pml_exp = 3,
+        cleaning = None,
     ):
         """
         3D time-domain electromagnetic solver based on the Finite Integration
@@ -131,6 +136,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.use_mpi = use_mpi
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
+        self.cleaning = cleaning
         self.use_conductivity = (
             False  # Will turn true with conductive material or pml
         )
@@ -157,9 +163,15 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.z = self.grid.z[:-1] + self.dz / 2
 
         self.L = self.grid.L
+        self.iL = self.grid.iL
+        self.A = self.grid.A
         self.iA = self.grid.iA
         self.tL = self.grid.tL
+        self.itL = self.grid.itL
+        self.tA = self.grid.tA
         self.itA = self.grid.itA
+        self.iV = self.grid.iV
+        self.itV = self.grid.itV
         self.update_logger(["grid", "background"])
 
         # Wake computation
@@ -405,20 +417,77 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
             )
 
-            oneField = Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype).toarray()
+            # Convolution Parameter computation, only valid if sigma is zero in physical domain
+            oneField = np.ones(self.N * 3, dtype=self.dtype)
             self.pml_b.fromarray(np.exp(
-                -(self.sigma.toarray() *  1.0 / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0)
-                * self.dt
-            ))
-
-            self.pml_c.toarray()[self.alpha_mask.toarray()] = (
-                self.sigma.toarray() / (self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()) 
-                * (self.pml_b.toarray() - oneField))[self.alpha_mask.toarray()]
+                -(self.sigma.toarray() *  1.0 / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0) * self.dt))
+            denom = self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()
+            ratio = np.divide(self.sigma.toarray(), denom, out=np.zeros_like(self.sigma.toarray()), where=denom != 0)
+            self.pml_c.fromarray(ratio * (self.pml_b.toarray() - oneField))   
 
             self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+
+        if self.cleaning is not None:
+            print("Initializing divergence cleaning operators...")
+            self.iDv = diags(self.iV, shape=(N, N), dtype=self.dtype)
+            self.itDv = diags(self.itV, shape=(N, N), dtype=self.dtype)
+            self.Da = diags(self.A.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+            self.tDa = diags(self.tA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+            self.iDs = diags(self.iL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+            self.itDs = diags(self.itL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+            self.Deps = diags(1.0 / self.ieps.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
+
+            # Grading for direct cleaning, can be used to ramp up the cleaning strength towards the boundaries to avoid reflections from the cleaning itself, especially when using few cleaning cells. This is not needed for Poisson cleaning which is more stable and less reflective, but can help to improve stability for direct cleaning.
+
+            self.cleaning_mask = Field(self.Nx, self.Ny, self.Nz, use_ones=False, dtype=self.dtype, use_gpu=self.use_gpu)
+            self.damp = (Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype, use_gpu=self.use_gpu))
+            dampramp = 5  # Number of cells with full cleaning
+            cleanramp = 5  # Clean from this index on low side
+
+            if self.activate_pml:
+                dampramp = self.n_pml
+                cleanramp = self.n_pml // 2
+
+            for d in ['x', 'y', 'z']:
+                self.cleaning_mask[:, :, :dampramp, d] = 1.0
+                self.cleaning_mask[:, :, -1-dampramp:, d] = 1.0
+                for i in range(cleanramp):
+                    clean_factor = np.cos(np.pi * i / (2 * cleanramp))**2  #(1.0 - i/cleanramp)
+                    self.cleaning_mask[:, :, i+dampramp, d] = clean_factor
+                    self.cleaning_mask[:, :, -1-i-dampramp, d] = clean_factor
+                for i in range(dampramp):
+                    damp_factor = 1.0 - np.cos(np.pi * i / (2 * dampramp))**2
+                    self.damp[:, :, i, d] = damp_factor
+                    self.damp[:, :, -1-i, d] = damp_factor
+
+            # Topological operators
+            self.S = hstack([self.Px, self.Py, self.Pz], dtype=self.dtype) * self.Dbc
+            self.tS = hstack([self.Px.transpose(), self.Py.transpose(), self.Pz.transpose()], dtype=self.dtype) * self.Dbc.transpose()
+
+            # Cleaning operators
+            self.Div = (self.itDv @ self.tS @ self.tDa)
+            self.Grad = (self.iDs @ self.tS.transpose())
+            self.Lag = self.Div @ self.Grad
+
+            #Plot variables
+            self.correct = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+
+            if self.use_gpu:
+                self.phi = cp.zeros(self.N, dtype=self.dtype)
+                self.rho = cp.zeros(self.N, dtype=self.dtype)
+
+                # only for Poisson, not for direct needed
+                self.drho = cp.zeros(self.N, dtype=self.dtype)
+
+            else:
+                self.phi = np.zeros(self.N, dtype=self.dtype)
+                self.rho = np.zeros(self.N, dtype=self.dtype)
+
+                # only for Poisson, not for direct needed
+                self.drho = np.zeros(self.N, dtype=self.dtype)
 
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = (
@@ -473,6 +542,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     self.dtzy = gpu_sparse_mat(self.dtzy)
                     self.pml_b.to_gpu()
                     self.pml_c.to_gpu()
+
+                if cleaning is not None:
+                    self.Div = gpu_sparse_mat(self.Div)
+                    self.Grad = gpu_sparse_mat(self.Grad)
+                    self.Lag = gpu_sparse_mat(self.Lag)
+                    self.Deps = gpu_sparse_mat(self.Deps)
+                    self.iDeps = gpu_sparse_mat(self.iDeps)
             else:
                 raise ImportError(
                     "[!] cupyx could not be imported, please check CUDA installation"
@@ -546,6 +622,43 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         )
         self.step_0 = False
 
+    def apply_cleaning(self):
+        self.n+=1
+
+        # direct cleaning
+
+        self.J.fromarray(self.J.toarray() * self.damp.toarray())
+        self.rho -= self.dt * (self.Div * (self.J.toarray() * self.J_mask)) # Apply cleaning mask to rho update to clean only specific parts of the domain
+
+        if (self.J_mask * self.cleaning_mask.toarray()).max() == 0: # clean only if J intersects enough with the cleaning mask
+            return
+
+        if self.use_gpu:
+            self.phi, info = gpu_cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
+        else:
+            self.phi, info = cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
+        if info != 0:
+            print(f'[!] Poisson solver did not converge, info: {info}')
+        self.correct.fromarray(self.iDeps * (self.Grad @ self.phi) * self.cleaning_mask.toarray()) # Apply cleaning mask to correct only specific parts of the domain
+        self.E.fromarray(self.E.toarray() - self.correct.toarray())
+        self.rho = np.zeros_like(self.rho)
+
+
+        # Poisson cleaning step based on the change in J, if the change is small we can skip the cleaning step to save time, if it is large we apply the cleaning step to maintain stability. This is a heuristic and can be adjusted based on the problem at hand.
+
+        # self.divE = self.Div @ (self.Deps * self.E.toarray())
+        # self.drho -= self.dt * (self.Div @ self.J.toarray())
+        # self.rho = self.divE - self.drho
+        # if self.use_gpu:
+        #     self.phi, info = gpu_cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
+        # else:
+        #     self.phi, info = cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
+        # if info != 0:
+        #     print(f'[!] Poisson solver did not converge, info: {info}')
+        # self.correct.fromarray(self.iDeps * (self.Grad @ self.phi) * self.cleaning_mask.toarray())
+        # self.E.fromarray(self.E.toarray() - self.correct.toarray())
+        # self.rho = np.zeros_like(self.rho)
+
     def _one_step_cpml(self):
     # Including the convolutional terms for the CPML update equations
         if self.step_0:
@@ -553,6 +666,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
+            self.n = 0
             if self.verbose>1:
                     print("Starting time-stepping with CPML...")
     
@@ -589,6 +703,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.J.fromarray(self.J.toarray() + dJ)
         self.J_old = Jtemp
 
+        if self.cleaning is not None:
+            self.apply_cleaning()
+
         self.psiEa.field_x = self.pml_b.field_y * self.psiEa.field_x + self.pml_c.field_y * dtxyHz
         self.psiEb.field_x = self.pml_b.field_z * self.psiEb.field_x + self.pml_c.field_z * dtxzHy
         self.psiEb.field_y = self.pml_b.field_x * self.psiEb.field_y + self.pml_c.field_x * dtyxHz
@@ -612,17 +729,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
+            self.n = 0
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
-        )
-
-        self.E.fromarray(
-            self.E.toarray()
-            + self.dt
-            * (
-                self.itDaiDepsDstC * self.H.toarray()
-                - self.ieps.toarray() * self.J.toarray()
-            )
         )
 
         # include current computation
@@ -632,12 +741,25 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.J.fromarray(self.J.toarray() + dJ)
             self.J_old = Jtemp
 
+        if self.cleaning is not None:
+            self.apply_cleaning()
+        
+        self.E.fromarray(
+            self.E.toarray()
+            + self.dt
+            * (
+                self.itDaiDepsDstC * self.H.toarray()
+                - self.ieps.toarray() * self.J.toarray()
+            )
+        )
+
     def _one_step_mkl(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
+            self.n = 0
         if self.activate_pml:
 
 
@@ -677,9 +799,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEb.field_z = self.pml_b.field_y * self.psiEb.field_z + self.pml_c.field_y * dtzyHx
 
             Jtemp = self.sigma.toarray() * self.E.toarray()
-            dJ = (Jtemp - self.J_old)
-            self.J.fromarray(self.J.toarray() + dJ)
+            self.dJ = (Jtemp - self.J_old)
+            self.J.fromarray(self.J.toarray() + self.dJ)
             self.J_old = Jtemp
+
+            if self.cleaning is not None:
+                self.apply_cleaning()
 
             self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                                 - self.dt * self.ieps.field_x * self.J.field_x
@@ -690,13 +815,21 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                                 - self.dt * self.ieps.field_z * self.J.field_z
                                 + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))  
-        
 
         else:       
             self.H.fromarray(
                 self.H.toarray()
                 - self.dt * dot_product_mkl(self.tDsiDmuiDaC, self.E.toarray())
             )
+
+            if self.use_conductivity:
+                Jtemp = self.sigma.toarray() * self.E.toarray()# * self.damp.toarray()
+                self.dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + self.dJ)
+                self.J_old = Jtemp
+
+            if self.cleaning is not None:
+                self.apply_cleaning()
 
             self.E.fromarray(
                 self.E.toarray()
@@ -706,13 +839,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     - self.ieps.toarray() * self.J.toarray()
                 )
             )
-
-            # include current computation
-            if self.use_conductivity:
-                Jtemp = self.sigma.toarray() * self.E.toarray()# * self.damp.toarray()
-                dJ = (Jtemp - self.J_old)
-                self.J.fromarray(self.J.toarray() + dJ)
-                self.J_old = Jtemp
 
     def _mpi_initialize(self):
         self.comm = self.grid.comm
@@ -1151,7 +1277,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.activate_pml:
            del self.alpha_mask
            #del self.kappa
-           del self.alpha
+           #del self.alpha
         del self.L, self.tL, self.iA, self.itA
 
         # Matrices
