@@ -430,7 +430,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
 
-        if self.cleaning is not None:
+        if 1 ==2:
+        #if self.cleaning is not None:
             print("Initializing divergence cleaning operators...")
             self.iDv = diags(self.iV, shape=(N, N), dtype=self.dtype)
             self.itDv = diags(self.itV, shape=(N, N), dtype=self.dtype)
@@ -455,7 +456,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.cleaning_mask[:, :, :dampramp, d] = 1.0
                 self.cleaning_mask[:, :, -1-dampramp:, d] = 1.0
                 for i in range(cleanramp):
-                    clean_factor = np.cos(np.pi * i / (2 * cleanramp))**2  #(1.0 - i/cleanramp)
+                    clean_factor = np.cos(np.pi * i / (2 * cleanramp))**2
                     self.cleaning_mask[:, :, i+dampramp, d] = clean_factor
                     self.cleaning_mask[:, :, -1-i-dampramp, d] = clean_factor
                 for i in range(dampramp):
@@ -626,22 +627,22 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.n+=1
 
         # direct cleaning
+        if 1 ==2:
+            self.J.fromarray(self.J.toarray() * self.damp.toarray())
+            self.rho -= self.dt * (self.Div * (self.J.toarray() * self.J_mask)) # Apply cleaning mask to rho update to clean only specific parts of the domain
 
-        self.J.fromarray(self.J.toarray() * self.damp.toarray())
-        self.rho -= self.dt * (self.Div * (self.J.toarray() * self.J_mask)) # Apply cleaning mask to rho update to clean only specific parts of the domain
+            if (self.J_mask * self.cleaning_mask.toarray()).max() == 0: # clean only if J intersects enough with the cleaning mask
+                return
 
-        if (self.J_mask * self.cleaning_mask.toarray()).max() == 0: # clean only if J intersects enough with the cleaning mask
-            return
-
-        if self.use_gpu:
-            self.phi, info = gpu_cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
-        else:
-            self.phi, info = cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
-        if info != 0:
-            print(f'[!] Poisson solver did not converge, info: {info}')
-        self.correct.fromarray(self.iDeps * (self.Grad @ self.phi) * self.cleaning_mask.toarray()) # Apply cleaning mask to correct only specific parts of the domain
-        self.E.fromarray(self.E.toarray() - self.correct.toarray())
-        self.rho = np.zeros_like(self.rho)
+            if self.use_gpu:
+                self.phi, info = gpu_cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
+            else:
+                self.phi, info = cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
+            if info != 0:
+                print(f'[!] Poisson solver did not converge, info: {info}')
+            self.correct.fromarray(self.iDeps * (self.Grad @ self.phi) * self.cleaning_mask.toarray()) # Apply cleaning mask to correct only specific parts of the domain
+            self.E.fromarray(self.E.toarray() - self.correct.toarray())
+            self.rho = np.zeros_like(self.rho)
 
 
         # Poisson cleaning step based on the change in J, if the change is small we can skip the cleaning step to save time, if it is large we apply the cleaning step to maintain stability. This is a heuristic and can be adjusted based on the problem at hand.
@@ -803,8 +804,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.J.fromarray(self.J.toarray() + self.dJ)
             self.J_old = Jtemp
 
-            if self.cleaning is not None:
-                self.apply_cleaning()
+            # if self.cleaning is not None:
+            #     self.apply_cleaning()
 
             self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                                 - self.dt * self.ieps.field_x * self.J.field_x

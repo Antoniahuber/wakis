@@ -265,9 +265,6 @@ class BCsMixin:
         self.alpha_mask = (
             Field(self.Nx, self.Ny, self.Nz, dtype=bool)
         )
-        self.damp = (
-            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype, use_gpu=self.use_gpu)
-        )
 
         # Fill
         if self.bc_low[0].lower() == "pml":
@@ -300,7 +297,6 @@ class BCsMixin:
                     self.alpha[i, :, :, d] = self.alpha_max * (1 - ax[i])
                     if self.alpha_max != 0:
                         self.alpha_mask[i, :, :, d] = True
-                    self.damp[i, :, :, d] = 1 - sx[i]
 
         if self.bc_low[1].lower() == "pml":
             interface = self.y[self.n_pml]
@@ -332,7 +328,6 @@ class BCsMixin:
                     self.alpha[:, j, :, d] = self.alpha_max * (1 - ay[j])
                     if self.alpha_max != 0:
                         self.alpha_mask[:, j, :, d] = True                    
-                    self.damp[:, j, :, d] = 1 - sy[j]
 
         if self.bc_low[2].lower() == "pml":
             interface = self.z[self.n_pml]
@@ -364,7 +359,6 @@ class BCsMixin:
                     self.alpha[:, :, k, d] = self.alpha_max * (1 - az[k])
                     if self.alpha_max != 0:
                         self.alpha_mask[:, :, k, d] = True
-                    self.damp[:, :, k, d] = 1 - sz[k]             
 
         if self.bc_high[0].lower() == "pml":
             interface = self.x[-1-self.n_pml]
@@ -397,7 +391,6 @@ class BCsMixin:
                     self.alpha[-i, :, :, d] = self.alpha_max * (1 - ax[-i])
                     if self.alpha_max != 0:
                         self.alpha_mask[-i, :, :, d] = True  
-                    self.damp[-i, :, :, d] = 1 - sx[-i]                 
 
         if self.bc_high[1].lower() == "pml":
             interface = self.y[-1-self.n_pml]
@@ -430,7 +423,6 @@ class BCsMixin:
                     self.alpha[:, -j, :, d] = self.alpha_max * (1 - ay[-j])
                     if self.alpha_max != 0:
                         self.alpha_mask[:, -j, :, d] = True 
-                    self.damp[:, -j, :, d] = 1 - sy[-j]                
 
         if self.bc_high[2].lower() == "pml":
             interface = self.z[-1-self.n_pml]
@@ -463,7 +455,6 @@ class BCsMixin:
                     self.alpha[:, :, -k, d] = self.alpha_max * (1 - az[-k])
                     if self.alpha_max != 0:
                         self.alpha_mask[:, :, -k, d] = True
-                    self.damp[:, :, -k, d] = 1 - sz[-k]
 
     def get_abc(self):
         """
