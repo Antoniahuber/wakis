@@ -59,7 +59,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         bg=[1.0, 1.0],
         verbose=1,
         kappa_max=5,
-        alpha_factor=0.1,
+        alpha_max=0.1,
         sigma_factor = 1,
         pml_exp = 3,
         cleaning = None,
@@ -293,10 +293,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.pml_exp = pml_exp
             self.n_pml = n_pml
             self.kappa_max = kappa_max
-            self.alpha_factor = alpha_factor
+            self.alpha_max = alpha_max
             self.cleaning = "direct"  # To automatically clean the charge building up at the boundary of the PML
             self._initialize_PML()
-            self.update_logger(["n_pml", "kappa_max", "alpha_factor", "sigma_factor", "pml_exp"])
+            self.update_logger(["n_pml", "kappa_max", "alpha_max", "sigma_factor", "pml_exp"])
             self.one_step = self._one_step_cpml
 
         # Timestep calculation
@@ -482,15 +482,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.rho = cp.zeros(self.N, dtype=self.dtype)
                 self.rhoplot = cp.zeros(self.N, dtype=self.dtype)
 
-                # only for Poisson, not for direct needed
-                self.drho = cp.zeros(self.N, dtype=self.dtype)
-
             else:
                 self.phi = np.zeros(self.N, dtype=self.dtype)
                 self.rho = np.zeros(self.N, dtype=self.dtype)
 
-                # only for Poisson, not for direct needed
-                self.drho = np.zeros(self.N, dtype=self.dtype)
 
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = (
@@ -546,12 +541,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     self.pml_b.to_gpu()
                     self.pml_c.to_gpu()
 
-                if cleaning is not None:
+                if self.cleaning is not None:
                     self.Div = gpu_sparse_mat(self.Div)
                     self.Grad = gpu_sparse_mat(self.Grad)
                     self.Lag = gpu_sparse_mat(self.Lag)
                     self.Deps = gpu_sparse_mat(self.Deps)
                     self.iDeps = gpu_sparse_mat(self.iDeps)
+                    
             else:
                 raise ImportError(
                     "[!] cupyx could not be imported, please check CUDA installation"
@@ -627,13 +623,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
     def apply_cleaning(self):        
         self.J.fromarray(self.J.toarray() * self.damp.toarray()) # To addditionally Damp J
-        self.rho -= self.dt * (self.Div * (self.J.toarray() * self.J_mask)) # Apply cleaning mask to rho update to clean only specific parts of the domain
+        self.rho -= self.dt * (self.Div @ (self.J.toarray() * self.J_mask)) # Apply cleaning mask to rho update to clean only specific parts of the domain
 
         if (self.J_mask * self.cleaning_mask.toarray()).max() == 0: # clean only if J intersects enough with the cleaning mask
             return
             
         self.rho = self.rho * self.cleaning_mask.field_x # Apply cleaning mask to rho to clean only specific parts of the domain
-        print("Apply cleaning")
+        if verbose > 1:
+            print("Apply cleaning")
         if self.use_gpu:
             self.phi, info = gpu_cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
         else:
@@ -653,7 +650,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
-            self.n = 0
             if self.verbose>1:
                     print("Starting time-stepping with CPML...")
     
@@ -716,7 +712,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
-            self.n = 0
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
         )
@@ -746,7 +741,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.step_0 = False
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
-            self.n = 0
         if self.activate_pml:
 
 
