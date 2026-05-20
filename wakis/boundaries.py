@@ -265,6 +265,9 @@ class BCsMixin:
         self.alpha_mask = (
             Field(self.Nx, self.Ny, self.Nz, dtype=bool)
         )
+        self.J_mask = (
+            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=bool)
+        )
 
         # Fill
         if self.bc_low[0].lower() == "pml":
@@ -285,6 +288,7 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.n_pml, self.Ny // 2, self.Nz // 2, d
                 ]
+                self.J_mask[:self.n_pml+1, :, :, d] = 0
                 for i in range(self.n_pml):
                     self.ieps[i, :, :, d] = ieps_0_pml
                     self.sigma[i, :, :, d] = (
@@ -315,6 +319,7 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, self.n_pml + 1, self.Nz // 2, d
                 ]
+                self.J_mask[:, :self.n_pml+1, :, d] = 0
                 for j in range(self.n_pml):
                     self.ieps[:, j, :, d] = ieps_0_pml
                     self.sigma[:, j, :, d] = (
@@ -345,6 +350,7 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
                 ]
+                self.J_mask[:, :, :self.n_pml+1, d] = 0
                 for k in range(self.n_pml):
                     self.ieps[:, :, k, d] = ieps_0_pml
                     self.sigma[:, :, k, d] = (
@@ -375,6 +381,7 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d
                 ]
+                self.J_mask[-self.n_pml-2:, :, :, d] = 0
                 for i in range(self.n_pml):
                     i += 1
                     self.ieps[-i, :, :, d] = ieps_0_pml
@@ -406,6 +413,7 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d
                 ]
+                self.J_mask[:, -self.n_pml-2:, :, d] = 0
                 for j in range(self.n_pml):
                     j += 1
                     self.ieps[:, -j, :, d] = ieps_0_pml
@@ -437,6 +445,7 @@ class BCsMixin:
                 sigma_0_pml = self.sigma[
                     self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
                 ]
+                self.J_mask[:, :, -self.n_pml-2:, d] = 0
                 for k in range(self.n_pml):
                     k += 1
                     self.ieps[:, :, -k, d] = ieps_0_pml

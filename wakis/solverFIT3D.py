@@ -294,7 +294,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.n_pml = n_pml
             self.kappa_max = kappa_max
             self.alpha_max = alpha_max
-            self.cleaning = "direct"  # To automatically clean the charge building up at the boundary of the PML
+            #self.cleaning = "direct"  # To automatically clean the charge building up at the boundary of the PML
             self._initialize_PML()
             self.update_logger(["n_pml", "kappa_max", "alpha_max", "sigma_factor", "pml_exp"])
             self.one_step = self._one_step_cpml
@@ -451,19 +451,10 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.itDs = diags(self.itL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
             self.Deps = diags(1.0 / self.ieps.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
 
-            # Grading for direct cleaning, can be used to ramp up the cleaning strength towards the boundaries to avoid reflections from the cleaning itself, especially when using few cleaning cells. This is not needed for Poisson cleaning which is more stable and less reflective, but can help to improve stability for direct cleaning.
-
-            self.cleaning_mask = Field(self.Nx, self.Ny, self.Nz, use_ones=False, dtype=self.dtype, use_gpu=self.use_gpu)
-            self.damp = (Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype, use_gpu=self.use_gpu))
-            cleanStart = 0
-            if self.activate_pml:
-                cleanStart = self.n_pml
-
+            self.cleaning_mask = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
             for d in ['x', 'y', 'z']:
-                self.cleaning_mask[:, :, :cleanStart+3, d] = 1.0
-                self.cleaning_mask[:, :, -cleanStart-4:, d] = 1.0
-                self.damp[:, :, :cleanStart+1, d] = 0
-                self.damp[:, :, -cleanStart-2:, d] = 0
+                self.cleaning_mask[:, :, :self.n_pml+3, d] = 1.0
+                self.cleaning_mask[:, :, -self.n_pml-4:, d] = 1.0
             
             # Topological operators
             self.S = hstack([self.Px, self.Py, self.Pz], dtype=self.dtype) * self.Dbc
@@ -622,7 +613,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.step_0 = False
 
     def apply_cleaning(self):        
-        self.J.fromarray(self.J.toarray() * self.damp.toarray()) # To addditionally Damp J
         self.rho -= self.dt * (self.Div @ (self.J.toarray() * self.J_mask)) # Apply cleaning mask to rho update to clean only specific parts of the domain
 
         if (self.J_mask * self.cleaning_mask.toarray()).max() == 0: # clean only if J intersects enough with the cleaning mask
@@ -685,6 +675,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dJ = (Jtemp - self.J_old)
         self.J.fromarray(self.J.toarray() + dJ)
         self.J_old = Jtemp
+        self.J.fromarray(self.J.toarray() * self.J_mask.toarray()) # To have no J update in PML, sigma is not physical and should only work through the convolutional terms
 
         if self.cleaning is not None:
             self.apply_cleaning()
@@ -804,7 +795,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             )
 
             if self.use_conductivity:
-                Jtemp = self.sigma.toarray() * self.E.toarray()# * self.damp.toarray()
+                Jtemp = self.sigma.toarray() * self.E.toarray()
                 self.dJ = (Jtemp - self.J_old)
                 self.J.fromarray(self.J.toarray() + self.dJ)
                 self.J_old = Jtemp
