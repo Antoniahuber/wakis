@@ -111,7 +111,7 @@ class Beam:
         solver.J[self.ixs, self.iys, :, "z"] += dJ
         self.Jold = Jprofile
 
-        solver.J_mask = (np.abs(solver.J.toarray()) >= 0.01 * solver.J_max).astype(float)
+        solver.source_mask = (np.abs(solver.J.toarray()) >= 0.01 * solver.J_max).astype(float)
 
     def plot(self, t):
         """
@@ -944,8 +944,6 @@ class GaussianPacket:
         sigmaz=None,
         sigmaxy=None,
         tinj=None,
-        wavelength=None,
-        f=None,
         amplitude=1.0,
         beta=1.0,
         sigmaf=None,

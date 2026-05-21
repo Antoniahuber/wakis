@@ -266,7 +266,7 @@ class BCsMixin:
             Field(self.Nx, self.Ny, self.Nz, dtype=bool)
         )
         self.J_mask = (
-            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=bool)
+            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=bool, use_gpu=self.use_gpu)
         )
 
         # Fill
