@@ -238,7 +238,7 @@ class BCsMixin:
             True for x in self.bc_high if x.lower() == "pml"
         ):
             self.activate_pml = True
-            self.use_conductivity = True
+            #self.use_conductivity = True
 
     def _initialize_PML(self):
         """
@@ -262,11 +262,8 @@ class BCsMixin:
         self.alpha = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
         )
-        self.alpha_mask = (
-            Field(self.Nx, self.Ny, self.Nz, dtype=bool)
-        )
-        self.J_mask = (
-            Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=bool, use_gpu=self.use_gpu)
+        self.sigma_pml = (
+            Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
         )
 
         # Fill
@@ -280,26 +277,13 @@ class BCsMixin:
                 ax[i] = (dist / L)
 
             for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the yz plane
-                ieps_0_pml = self.ieps[
-                    self.n_pml, self.Ny // 2, self.Nz // 2, d
-                ]
-                sigma_0_pml = self.sigma[
-                    self.n_pml, self.Ny // 2, self.Nz // 2, d
-                ]
-                self.J_mask[:self.n_pml+1, :, :, d] = 0
                 for i in range(self.n_pml):
-                    self.ieps[i, :, :, d] = ieps_0_pml
-                    self.sigma[i, :, :, d] = (
-                        sigma_0_pml + (sigma_max - sigma_0_pml) * sx[i]
-                    )
+                    self.ieps[i, :, :, d] = 1/eps_0
+                    self.sigma_pml[i, :, :, d] = sigma_max * sx[i]
                     self.kappa[i, :, :, d] = (
                         1 + (self.kappa_max - 1) * sx[i]
                     )
                     self.alpha[i, :, :, d] = self.alpha_max * (1 - ax[i])
-                    if self.alpha_max != 0:
-                        self.alpha_mask[i, :, :, d] = True
 
         if self.bc_low[1].lower() == "pml":
             interface = self.y[self.n_pml]
@@ -311,26 +295,13 @@ class BCsMixin:
                 ay[i] = (dist / L)
 
             for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xz plane
-                ieps_0_pml = self.ieps[
-                    self.Nx // 2, self.n_pml + 1, self.Nz // 2, d
-                ]
-                sigma_0_pml = self.sigma[
-                    self.Nx // 2, self.n_pml + 1, self.Nz // 2, d
-                ]
-                self.J_mask[:, :self.n_pml+1, :, d] = 0
                 for j in range(self.n_pml):
-                    self.ieps[:, j, :, d] = ieps_0_pml
-                    self.sigma[:, j, :, d] = (
-                        sigma_0_pml + (sigma_max - sigma_0_pml) * sy[j]
-                    )
+                    self.ieps[:, j, :, d] = 1/eps_0
+                    self.sigma_pml[:, j, :, d] = sigma_max * sy[j]
                     self.kappa[:, j, :, d] = (
                         1 + (self.kappa_max - 1) * sy[j]
                     )
-                    self.alpha[:, j, :, d] = self.alpha_max * (1 - ay[j])
-                    if self.alpha_max != 0:
-                        self.alpha_mask[:, j, :, d] = True                    
+                    self.alpha[:, j, :, d] = self.alpha_max * (1 - ay[j])                 
 
         if self.bc_low[2].lower() == "pml":
             interface = self.z[self.n_pml]
@@ -342,26 +313,13 @@ class BCsMixin:
                 az[i] = (dist / L)
 
             for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xy plane
-                ieps_0_pml = self.ieps[
-                    self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
-                ]
-                sigma_0_pml = self.sigma[
-                    self.Nx // 2, self.Ny // 2, self.n_pml + 1, d
-                ]
-                self.J_mask[:, :, :self.n_pml+1, d] = 0
                 for k in range(self.n_pml):
-                    self.ieps[:, :, k, d] = ieps_0_pml
-                    self.sigma[:, :, k, d] = (
-                        sigma_0_pml + (sigma_max - sigma_0_pml) * sz[k]
-                    )
+                    self.ieps[:, :, k, d] = 1/eps_0
+                    self.sigma_pml[:, :, k, d] = sigma_max * sz[k]
                     self.kappa[:, :, k, d] = (
                         1 + (self.kappa_max - 1) * sz[k]
                     )
                     self.alpha[:, :, k, d] = self.alpha_max * (1 - az[k])
-                    if self.alpha_max != 0:
-                        self.alpha_mask[:, :, k, d] = True
 
         if self.bc_high[0].lower() == "pml":
             interface = self.x[-1-self.n_pml]
@@ -373,27 +331,14 @@ class BCsMixin:
                 ax[-self.n_pml+i] = (dist / L)
             
             for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the yz plane
-                ieps_0_pml = self.ieps[
-                    -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d
-                ]
-                sigma_0_pml = self.sigma[
-                    -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d
-                ]
-                self.J_mask[-self.n_pml-2:, :, :, d] = 0
                 for i in range(self.n_pml):
                     i += 1
-                    self.ieps[-i, :, :, d] = ieps_0_pml
-                    self.sigma[-i, :, :, d] = (
-                        sigma_0_pml + (sigma_max - sigma_0_pml) * sx[-i]
-                    )
+                    self.ieps[-i, :, :, d] = 1/eps_0
+                    self.sigma_pml[-i, :, :, d] = sigma_max * sx[-i]
                     self.kappa[-i, :, :, d] = (
                         1 + (self.kappa_max - 1) * sx[-i]
                     )
                     self.alpha[-i, :, :, d] = self.alpha_max * (1 - ax[-i])
-                    if self.alpha_max != 0:
-                        self.alpha_mask[-i, :, :, d] = True  
 
         if self.bc_high[1].lower() == "pml":
             interface = self.y[-1-self.n_pml]
@@ -405,27 +350,14 @@ class BCsMixin:
                 ay[-self.n_pml+i] = (dist / L)
             
             for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xz plane
-                ieps_0_pml = self.ieps[
-                    self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d
-                ]
-                sigma_0_pml = self.sigma[
-                    self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d
-                ]
-                self.J_mask[:, -self.n_pml-2:, :, d] = 0
                 for j in range(self.n_pml):
                     j += 1
-                    self.ieps[:, -j, :, d] = ieps_0_pml
-                    self.sigma[:, -j, :, d] = (
-                        sigma_0_pml + (sigma_max - sigma_0_pml) * sy[-j]
-                    )
+                    self.ieps[:, -j, :, d] = 1/eps_0
+                    self.sigma_pml[:, -j, :, d] = sigma_max * sy[-j]
                     self.kappa[:, -j, :, d] = (
                         1 + (self.kappa_max - 1) * sy[-j]
                     )
                     self.alpha[:, -j, :, d] = self.alpha_max * (1 - ay[-j])
-                    if self.alpha_max != 0:
-                        self.alpha_mask[:, -j, :, d] = True 
 
         if self.bc_high[2].lower() == "pml":
             interface = self.z[-1-self.n_pml]
@@ -437,27 +369,14 @@ class BCsMixin:
                 az[-self.n_pml+i] = (dist / L)
 
             for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xy plane
-                ieps_0_pml = self.ieps[
-                    self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
-                ]
-                sigma_0_pml = self.sigma[
-                    self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d
-                ]
-                self.J_mask[:, :, -self.n_pml-2:, d] = 0
                 for k in range(self.n_pml):
                     k += 1
-                    self.ieps[:, :, -k, d] = ieps_0_pml
-                    self.sigma[:, :, -k, d] = (
-                        sigma_0_pml + (sigma_max - sigma_0_pml) * sz[-k]
-                    )
+                    self.ieps[:, :, -k, d] = 1/eps_0
+                    self.sigma_pml[:, :, -k, d] = sigma_max * sz[-k]
                     self.kappa[:, :, -k, d] = (
                         1 + (self.kappa_max - 1) * sz[-k]
                     )
                     self.alpha[:, :, -k, d] = self.alpha_max * (1 - az[-k])
-                    if self.alpha_max != 0:
-                        self.alpha_mask[:, :, -k, d] = True
 
     def get_abc(self):
         """

@@ -62,7 +62,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         alpha_max=0.1,
         sigma_factor = 1,
         pml_exp = 3,
-        cleaning = 'automatic',
+        cleaning = None,
     ):
         """
         3D time-domain electromagnetic solver based on the Finite Integration
@@ -294,8 +294,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.n_pml = n_pml
             self.kappa_max = kappa_max
             self.alpha_max = alpha_max
-            if cleaning is not None:
-                self.cleaning = "direct"  # To automatically clean the charge building up at the boundary of the PML
             self._initialize_PML()
             self.update_logger(["n_pml", "kappa_max", "alpha_max", "sigma_factor", "pml_exp"])
             self.one_step = self._one_step_cpml
@@ -440,9 +438,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             # Convolution Parameter computation, only valid if sigma is zero in physical domain
             oneField = np.ones(self.N * 3, dtype=self.dtype)
             self.pml_b_H.fromarray(np.exp(
-                -(self.sigma.toarray() / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0) * self.dt))
-            denom = self.sigma.toarray() + self.kappa.toarray() * self.alpha.toarray()
-            ratio = np.divide(self.sigma.toarray(), denom, out=np.zeros_like(self.sigma.toarray()), where=denom != 0)
+                -(self.sigma_pml.toarray() / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0) * self.dt))
+            denom = self.sigma_pml.toarray() + self.kappa.toarray() * self.alpha.toarray()
+            ratio = np.divide(self.sigma_pml.toarray(), denom, out=np.zeros_like(self.sigma_pml.toarray()), where=denom != 0)
             self.pml_c_H.fromarray(ratio * (self.pml_b_H.toarray() - oneField))
 
             self.pml_b_E.field_x = np.append((self.pml_b_H.field_x[1:] + self.pml_b_H.field_x[:-1]) / 2, (self.pml_b_H.field_x[-2] + self.pml_b_H.field_x[-1]) / 2)
@@ -695,10 +693,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dtzxHy = self.dtzx * self.H.field_y
         dtzyHx = self.dtzy * self.H.field_x
 
-        Jtemp = self.sigma.toarray() * self.E.toarray() * self.J_mask.toarray()
-        dJ = (Jtemp - self.J_old)
-        self.J.fromarray(self.J.toarray() + dJ)
-        self.J_old = Jtemp
+        if self.use_conductivity:
+            Jtemp = self.sigma.toarray() * self.E.toarray()
+            dJ = (Jtemp - self.J_old)
+            self.J.fromarray(self.J.toarray() + dJ)
+            self.J_old = Jtemp
 
         if self.cleaning == 'direct':
             self.apply_cleaning()
@@ -793,10 +792,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEa.field_z = self.pml_b_E.field_x * self.psiEa.field_z + self.pml_c_E.field_x * dtzxHy
             self.psiEb.field_z = self.pml_b_E.field_y * self.psiEb.field_z + self.pml_c_E.field_y * dtzyHx
 
-            Jtemp = self.sigma.toarray() * self.E.toarray() * self.J_mask.toarray()
-            self.dJ = (Jtemp - self.J_old)
-            self.J.fromarray(self.J.toarray() + self.dJ)
-            self.J_old = Jtemp
+            if self.use_conductivity:
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                self.dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + self.dJ)
+                self.J_old = Jtemp
 
             if self.cleaning == 'direct':
                 self.apply_cleaning()
@@ -1270,9 +1270,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             del self.BC
             del self.Dbc
         if self.activate_pml:
-           del self.alpha_mask
            #del self.kappa
            #del self.alpha
+           pass
         del self.L, self.tL, self.iA, self.itA
 
         # Matrices
