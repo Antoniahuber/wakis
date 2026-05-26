@@ -17,6 +17,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.constants import mu_0, c as c_light
 
+from .field import Field
+
 
 class Beam:
     def __init__(
@@ -96,6 +98,25 @@ class Beam:
             else:
                 self.zmin = solver.z.min()
             solver.J_max = self.q * self.v / solver.dx[self.ixs] / solver.dy[self.iys] / (np.sqrt(2 * np.pi * self.sigmaz**2))
+
+            #Tunneling for beam through PML
+            if solver.cleaning == 'tunneling':
+                solver.tkappa = Field(solver.Nx, solver.Ny, solver.Nz, use_ones=True, dtype=solver.dtype)
+                solver.tkappa.field_x = solver.tkappax
+                solver.tkappa.field_y = solver.tkappay
+                solver.tkappa.field_z = solver.tkappaz
+                tsize = 10
+                for d in ['x', 'y', 'z']:
+                    # Primal grid
+                    solver.pml_b_H[self.ixs-tsize:self.ixs+tsize+1, self.iys-tsize:self.iys+tsize+1, :, d] = 1.0
+                    solver.pml_c_H[self.ixs-tsize:self.ixs+tsize+1, self.iys-tsize:self.iys+tsize+1, :, d] = 0.0
+                    solver.kappa[self.ixs-tsize:self.ixs+tsize+1, self.iys-tsize:self.iys+tsize+1, :, d] = 1.0
+                    solver.pml_b_E[self.ixs-tsize:self.ixs+tsize, self.iys-tsize:self.iys+tsize, :, d] = 1.0
+                    solver.pml_c_E[self.ixs-tsize:self.ixs+tsize, self.iys-tsize:self.iys+tsize, :, d] = 0.0
+                    solver.tkappa[self.ixs-tsize:self.ixs+tsize, self.iys-tsize:self.iys+tsize, :, d] = 1.0
+
+                solver.reinitialize_pml()
+
         # reference shift
         s0 = self.zmin - self.v * self.ti
         s = solver.z - self.v * t
@@ -107,11 +128,16 @@ class Beam:
         )
         # update
         Jprofile = self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
+        #if solver.cleaning == 'damping':
+        if solver.cleaning in ['damping', 'direct']:
+            Jprofile *= solver.envelope[self.ixs, self.iys, :, "z"]
+            
         dJ = Jprofile - self.Jold
         solver.J[self.ixs, self.iys, :, "z"] += dJ
         self.Jold = Jprofile
 
-        solver.source_mask = (np.abs(solver.J.toarray()) >= 0.01 * solver.J_max).astype(float)
+        if solver.cleaning=='direct':
+            solver.source_mask = (np.abs(solver.J.toarray()) >= 0.01 * solver.J_max).astype(float)
 
     def plot(self, t):
         """
