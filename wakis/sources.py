@@ -95,7 +95,6 @@ class Beam:
                 self.zmin = solver.ZMIN + solver.dz[zminIdx] / 2
             else:
                 self.zmin = solver.z.min()
-            solver.J_max = self.q * self.v / solver.dx[self.ixs] / solver.dy[self.iys] / (np.sqrt(2 * np.pi * self.sigmaz**2))
         # reference shift
         s0 = self.zmin - self.v * self.ti
         s = solver.z - self.v * t
@@ -110,8 +109,6 @@ class Beam:
         dJ = Jprofile - self.Jold
         solver.J[self.ixs, self.iys, :, "z"] += dJ
         self.Jold = Jprofile
-
-        solver.source_mask = (np.abs(solver.J.toarray()) >= 0.01 * solver.J_max).astype(float)
 
     def plot(self, t):
         """

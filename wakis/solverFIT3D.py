@@ -62,7 +62,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         alpha_max=0.01,
         sigma_factor = 1,
         pml_exp = 3,
-        cleaning = None,
     ):
         """
         3D time-domain electromagnetic solver based on the Finite Integration
@@ -136,7 +135,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.use_mpi = use_mpi
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
-        self.cleaning = cleaning
         self.use_conductivity = (
             False  # Will turn true with conductive material or pml
         )
@@ -455,44 +453,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
 
-
-        if self.cleaning == 'direct':
-            print("Initializing divergence cleaning operators...")
-            self.iDv = diags(self.iV, shape=(N, N), dtype=self.dtype)
-            self.itDv = diags(self.itV, shape=(N, N), dtype=self.dtype)
-            self.Da = diags(self.A.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-            self.tDa = diags(self.tA.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-            self.iDs = diags(self.iL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-            self.itDs = diags(self.itL.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype)
-            deps = np.divide(1.0, self.ieps.toarray(), where=self.ieps.toarray() != 0, out=np.zeros_like(self.ieps.toarray()))
-            self.Deps = diags(deps, shape=(3 * N, 3 * N), dtype=self.dtype)
-            self.flag = 0
-
-            self.cleaning_mask = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
-            for d in ['x', 'y', 'z']:
-                self.cleaning_mask[:, :, :self.n_pml+3, d] = 1.0
-                self.cleaning_mask[:, :, -self.n_pml-4:, d] = 1.0
-            
-            # Topological operators
-            self.S = hstack([self.Px, self.Py, self.Pz], dtype=self.dtype) * self.Dbc
-            self.tS = hstack([self.Px.transpose(), self.Py.transpose(), self.Pz.transpose()], dtype=self.dtype) * self.Dbc.transpose()
-
-            # Cleaning operators
-            self.Div = (self.itDv @ self.tS @ self.tDa)
-            self.Grad = (self.iDs @ self.tS.transpose())
-            self.Lag = self.Div @ self.Grad
-
-            #Plot variables
-            self.correct = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
-
-            if self.use_gpu:
-                self.phi = cp.zeros(self.N, dtype=self.dtype)
-                self.rho = cp.zeros(self.N, dtype=self.dtype)
-
-            else:
-                self.phi = np.zeros(self.N, dtype=self.dtype)
-                self.rho = np.zeros(self.N, dtype=self.dtype)
-
         self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
         self.itDaiDepsDstC = (
             self.iDeps * self.itDa * self.C.transpose() * self.tDs
@@ -549,12 +509,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     self.pml_b_E.to_gpu()
                     self.pml_c_E.to_gpu()
 
-                if self.cleaning is not None:
-                    self.Div = gpu_sparse_mat(self.Div)
-                    self.Grad = gpu_sparse_mat(self.Grad)
-                    self.Lag = gpu_sparse_mat(self.Lag)
-                    self.Deps = gpu_sparse_mat(self.Deps)
-                    self.iDeps = gpu_sparse_mat(self.iDeps)
                     
             else:
                 raise ImportError(
@@ -629,32 +583,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         )
         self.step_0 = False
 
-    def apply_cleaning(self):        
-        self.rho -= self.dt * (self.Div @ self.J.toarray())
-
-        if (self.source_mask * self.cleaning_mask.toarray()).max() == 0: # clean only if J intersects enough with the cleaning mask
-            if verbose > 1:
-                self.correct.fromarray(np.zeros_like(self.correct.toarray()))
-            return
-            
-        if self.flag !=0:
-            self.flag -= 1
-            return
-
-        self.flag = 1
-        self.rho = self.rho * self.cleaning_mask.field_x # Apply cleaning mask to rho to clean only specific parts of the domain
-        if verbose > 1:
-            print("Apply cleaning")
-        if self.use_gpu:
-            self.phi, info = gpu_cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
-        else:
-            self.phi, info = cg(self.Lag, self.rho, x0=self.phi, maxiter=1000)
-        if info != 0:
-            print(f'[!] Poisson solver did not converge, info: {info}')
-        self.correct.fromarray(self.iDeps * (self.Grad @ self.phi))
-        self.E.fromarray(self.E.toarray() - self.correct.toarray())
-        self.rho = np.zeros_like(self.rho)
-
     def _one_step_cpml(self):
     # Including the convolutional terms for the CPML update equations
         if self.step_0:
@@ -699,9 +627,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.J.fromarray(self.J.toarray() + dJ)
             self.J_old = Jtemp
 
-        if self.cleaning == 'direct':
-            self.apply_cleaning()
-
         self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
         self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
         self.psiEb.field_y = self.pml_b_E.field_x * self.psiEb.field_y + self.pml_c_E.field_x * dtyxHz
@@ -735,9 +660,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dJ = (Jtemp - self.J_old)
             self.J.fromarray(self.J.toarray() + dJ)
             self.J_old = Jtemp
-
-        if self.cleaning == 'direct':
-            self.apply_cleaning()
         
         self.E.fromarray(
             self.E.toarray()
@@ -798,9 +720,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.J.fromarray(self.J.toarray() + self.dJ)
                 self.J_old = Jtemp
 
-            if self.cleaning == 'direct':
-                self.apply_cleaning()
-
             self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                                 - self.dt * self.ieps.field_x * self.J.field_x
                                 + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
@@ -822,9 +741,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.dJ = (Jtemp - self.J_old)
                 self.J.fromarray(self.J.toarray() + self.dJ)
                 self.J_old = Jtemp
-
-            if self.cleaning == 'direct':
-                self.apply_cleaning()
 
             self.E.fromarray(
                 self.E.toarray()
