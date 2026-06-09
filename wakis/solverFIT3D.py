@@ -469,13 +469,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.flag = 0
 
             self.cleaning_mask = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
+            self.J_mask = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu, use_ones=True)
             for d in ['x', 'y', 'z']:
                 self.cleaning_mask[:, :, :self.n_pml+3, d] = 1.0
                 self.cleaning_mask[:, :, -self.n_pml-4:, d] = 1.0
+                self.J_mask[:, :, :self.n_pml+1, d] = 0.0
+                self.J_mask[:, :, -self.n_pml-2:, d] = 0.0
             
             # Topological operators
-            self.S = hstack([self.Px, self.Py, self.Pz], dtype=self.dtype) * self.Dbc
-            self.tS = hstack([self.Px.transpose(), self.Py.transpose(), self.Pz.transpose()], dtype=self.dtype) * self.Dbc.transpose()
+            self.S = hstack([self.ikapx * self.Px, self.ikapy * self.Py, self.ikapz * self.Pz], dtype=self.dtype) * self.Dbc
+            self.tS = hstack([self.Px.transpose() * self.itkapx, self.Py.transpose() * self.itkapy, self.Pz.transpose() * self.itkapz], dtype=self.dtype) * self.Dbc.transpose()
 
             # Cleaning operators
             self.Div = (self.itDv @ self.tS @ self.tDa)
@@ -630,6 +633,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.step_0 = False
 
     def apply_cleaning(self):        
+        self.J.fromarray(self.J.toarray() * self.J_mask.toarray())
         self.rho -= self.dt * (self.Div @ self.J.toarray())
 
         if (self.source_mask * self.cleaning_mask.toarray()).max() == 0: # clean only if J intersects enough with the cleaning mask
@@ -641,7 +645,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.flag -= 1
             return
 
-        self.flag = 1
+        self.flag = 0
         self.rho = self.rho * self.cleaning_mask.field_x # Apply cleaning mask to rho to clean only specific parts of the domain
         if verbose > 1:
             print("Apply cleaning")
