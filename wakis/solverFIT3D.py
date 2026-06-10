@@ -294,7 +294,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.alpha_max = alpha_max
             self._initialize_PML()
             self.update_logger(["n_pml", "kappa_max", "alpha_max", "sigma_factor", "pml_exp"])
-            self.one_step = self._one_step_cpml
 
         # Timestep calculation
         if verbose:
@@ -344,13 +343,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         # Matrices for lengths and areas for split field calculations
         if self.activate_pml:
 
-            self.tkappax = (self.kappa.field_x[1:] + self.kappa.field_x[:-1]) / 2
-            self.tkappay = (self.kappa.field_y[1:] + self.kappa.field_y[:-1]) / 2
-            self.tkappaz = (self.kappa.field_z[1:] + self.kappa.field_z[:-1]) / 2
-            self.tkappax = np.append(self.tkappax, self.tkappax[-1])
-            self.tkappay = np.append(self.tkappay, self.tkappay[-1])
-            self.tkappaz = np.append(self.tkappaz, self.tkappaz[-1])
-
             self.tLx = diags(
                 self.tL.field_x, shape=(N, N), dtype=self.dtype
             )
@@ -397,13 +389,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
             )
             self.itkapx = diags(
-                1.0 / self.tkappax, shape=(N, N), dtype=self.dtype
+                1.0 / self.tkappa.field_x, shape=(N, N), dtype=self.dtype
             )
             self.itkapy = diags(
-                1.0 / self.tkappay, shape=(N, N), dtype=self.dtype
+                1.0 / self.tkappa.field_y, shape=(N, N), dtype=self.dtype
             )
             self.itkapz = diags(
-                1.0 / self.tkappaz, shape=(N, N), dtype=self.dtype
+                1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype
             )
 
             self.dxy = self.iAx * self.ikapy * self.Py * self.Lz * self.Dbc_z
@@ -441,12 +433,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             ratio = np.divide(self.sigma_pml.toarray(), denom, out=np.zeros_like(self.sigma_pml.toarray()), where=denom != 0)
             self.pml_c_H.fromarray(ratio * (self.pml_b_H.toarray() - oneField))
 
-            self.pml_b_E.field_x = np.append((self.pml_b_H.field_x[1:] + self.pml_b_H.field_x[:-1]) / 2, (self.pml_b_H.field_x[-2] + self.pml_b_H.field_x[-1]) / 2)
-            self.pml_c_E.field_x = np.append((self.pml_c_H.field_x[1:] + self.pml_c_H.field_x[:-1]) / 2, (self.pml_c_H.field_x[-2] + self.pml_c_H.field_x[-1]) / 2)
-            self.pml_b_E.field_y = np.append((self.pml_b_H.field_y[1:] + self.pml_b_H.field_y[:-1]) / 2, (self.pml_b_H.field_y[-2] + self.pml_b_H.field_y[-1]) / 2)
-            self.pml_c_E.field_y = np.append((self.pml_c_H.field_y[1:] + self.pml_c_H.field_y[:-1]) / 2, (self.pml_c_H.field_y[-2] + self.pml_c_H.field_y[-1]) / 2)
-            self.pml_b_E.field_z = np.append((self.pml_b_H.field_z[1:] + self.pml_b_H.field_z[:-1]) / 2, (self.pml_b_H.field_z[-2] + self.pml_b_H.field_z[-1]) / 2)
-            self.pml_c_E.field_z = np.append((self.pml_c_H.field_z[1:] + self.pml_c_H.field_z[:-1]) / 2, (self.pml_c_H.field_z[-2] + self.pml_c_H.field_z[-1]) / 2)
+            self.pml_b_E.fromarray(np.exp(
+                -(self.tsigma_pml.toarray() / (self.tkappa.toarray()*eps_0) + self.talpha.toarray()/ eps_0) * self.dt))
+            denom = self.tsigma_pml.toarray() + self.tkappa.toarray() * self.talpha.toarray()
+            ratio = np.divide(self.tsigma_pml.toarray(), denom, out=np.zeros_like(self.tsigma_pml.toarray()), where=denom != 0)
+            self.pml_c_E.fromarray(ratio * (self.pml_b_E.toarray() - oneField))
 
             self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
