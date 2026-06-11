@@ -627,7 +627,7 @@ class WakeSolver:
             )
             np.savetxt(
                 self.folder + "WPy.txt",
-                np.c_[self.s, self.WPx],
+                np.c_[self.s, self.WPy],
                 header="   s [m]" + " " * 20 + "WP [V/pC]" + "\n" + "-" * 48,
             )
 

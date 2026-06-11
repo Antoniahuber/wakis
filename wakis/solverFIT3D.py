@@ -62,7 +62,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         alpha_max=0.01,
         sigma_factor = 1,
         pml_exp = 3,
-        cleaning = None,
     ):
         """
         3D time-domain electromagnetic solver based on the Finite Integration
@@ -136,7 +135,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.use_mpi = use_mpi
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
-        self.cleaning = cleaning
         self.use_conductivity = (
             False  # Will turn true with conductive material or pml
         )
@@ -296,7 +294,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.alpha_max = alpha_max
             self._initialize_PML()
             self.update_logger(["n_pml", "kappa_max", "alpha_max", "sigma_factor", "pml_exp"])
-            self.one_step = self._one_step_cpml
 
         # Timestep calculation
         if verbose:
@@ -346,13 +343,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         # Matrices for lengths and areas for split field calculations
         if self.activate_pml:
 
-            self.tkappax = (self.kappa.field_x[1:] + self.kappa.field_x[:-1]) / 2
-            self.tkappay = (self.kappa.field_y[1:] + self.kappa.field_y[:-1]) / 2
-            self.tkappaz = (self.kappa.field_z[1:] + self.kappa.field_z[:-1]) / 2
-            self.tkappax = np.append(self.tkappax, self.tkappax[-1])
-            self.tkappay = np.append(self.tkappay, self.tkappay[-1])
-            self.tkappaz = np.append(self.tkappaz, self.tkappaz[-1])
-
             self.tLx = diags(
                 self.tL.field_x, shape=(N, N), dtype=self.dtype
             )
@@ -399,13 +389,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
             )
             self.itkapx = diags(
-                1.0 / self.tkappax, shape=(N, N), dtype=self.dtype
+                1.0 / self.tkappa.field_x, shape=(N, N), dtype=self.dtype
             )
             self.itkapy = diags(
-                1.0 / self.tkappay, shape=(N, N), dtype=self.dtype
+                1.0 / self.tkappa.field_y, shape=(N, N), dtype=self.dtype
             )
             self.itkapz = diags(
-                1.0 / self.tkappaz, shape=(N, N), dtype=self.dtype
+                1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype
             )
 
             self.dxy = self.iAx * self.ikapy * self.Py * self.Lz * self.Dbc_z
@@ -443,18 +433,16 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             ratio = np.divide(self.sigma_pml.toarray(), denom, out=np.zeros_like(self.sigma_pml.toarray()), where=denom != 0)
             self.pml_c_H.fromarray(ratio * (self.pml_b_H.toarray() - oneField))
 
-            self.pml_b_E.field_x = np.append((self.pml_b_H.field_x[1:] + self.pml_b_H.field_x[:-1]) / 2, (self.pml_b_H.field_x[-2] + self.pml_b_H.field_x[-1]) / 2)
-            self.pml_c_E.field_x = np.append((self.pml_c_H.field_x[1:] + self.pml_c_H.field_x[:-1]) / 2, (self.pml_c_H.field_x[-2] + self.pml_c_H.field_x[-1]) / 2)
-            self.pml_b_E.field_y = np.append((self.pml_b_H.field_y[1:] + self.pml_b_H.field_y[:-1]) / 2, (self.pml_b_H.field_y[-2] + self.pml_b_H.field_y[-1]) / 2)
-            self.pml_c_E.field_y = np.append((self.pml_c_H.field_y[1:] + self.pml_c_H.field_y[:-1]) / 2, (self.pml_c_H.field_y[-2] + self.pml_c_H.field_y[-1]) / 2)
-            self.pml_b_E.field_z = np.append((self.pml_b_H.field_z[1:] + self.pml_b_H.field_z[:-1]) / 2, (self.pml_b_H.field_z[-2] + self.pml_b_H.field_z[-1]) / 2)
-            self.pml_c_E.field_z = np.append((self.pml_c_H.field_z[1:] + self.pml_c_H.field_z[:-1]) / 2, (self.pml_c_H.field_z[-2] + self.pml_c_H.field_z[-1]) / 2)
+            self.pml_b_E.fromarray(np.exp(
+                -(self.tsigma_pml.toarray() / (self.tkappa.toarray()*eps_0) + self.talpha.toarray()/ eps_0) * self.dt))
+            denom = self.tsigma_pml.toarray() + self.tkappa.toarray() * self.talpha.toarray()
+            ratio = np.divide(self.tsigma_pml.toarray(), denom, out=np.zeros_like(self.tsigma_pml.toarray()), where=denom != 0)
+            self.pml_c_E.fromarray(ratio * (self.pml_b_E.toarray() - oneField))
 
             self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
-
 
         if self.cleaning == 'direct':
             print("Initializing divergence cleaning operators...")
@@ -552,12 +540,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     self.pml_b_E.to_gpu()
                     self.pml_c_E.to_gpu()
 
-                if self.cleaning is not None:
-                    self.Div = gpu_sparse_mat(self.Div)
-                    self.Grad = gpu_sparse_mat(self.Grad)
-                    self.Lag = gpu_sparse_mat(self.Lag)
-                    self.Deps = gpu_sparse_mat(self.Deps)
-                    self.iDeps = gpu_sparse_mat(self.iDeps)
                     
             else:
                 raise ImportError(
@@ -703,9 +685,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.J.fromarray(self.J.toarray() + dJ)
             self.J_old = Jtemp
 
-        if self.cleaning == 'direct':
-            self.apply_cleaning()
-
         self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
         self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
         self.psiEb.field_y = self.pml_b_E.field_x * self.psiEb.field_y + self.pml_c_E.field_x * dtyxHz
@@ -739,9 +718,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dJ = (Jtemp - self.J_old)
             self.J.fromarray(self.J.toarray() + dJ)
             self.J_old = Jtemp
-
-        if self.cleaning == 'direct':
-            self.apply_cleaning()
         
         self.E.fromarray(
             self.E.toarray()
@@ -802,9 +778,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.J.fromarray(self.J.toarray() + self.dJ)
                 self.J_old = Jtemp
 
-            if self.cleaning == 'direct':
-                self.apply_cleaning()
-
             self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                                 - self.dt * self.ieps.field_x * self.J.field_x
                                 + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
@@ -826,9 +799,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.dJ = (Jtemp - self.J_old)
                 self.J.fromarray(self.J.toarray() + self.dJ)
                 self.J_old = Jtemp
-
-            if self.cleaning == 'direct':
-                self.apply_cleaning()
 
             self.E.fromarray(
                 self.E.toarray()
