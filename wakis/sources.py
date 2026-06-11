@@ -931,9 +931,6 @@ class Pulse:
 #         fig.tight_layout()
 #         plt.show()
 
-c_light = 299792458.0
-mu_0 = 4 * np.pi * 1e-7
-
 class ModePacket:
     def __init__(
         self,
