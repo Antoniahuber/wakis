@@ -291,6 +291,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = interface - self.x[i]   # distance into PML
                 tdist = interface - (self.x[i] + self.dx[i]/2)   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L)**self.pml_exp
                 ax[i] = (dist / L)
                 tax[i] = (tdist / L)
@@ -309,6 +310,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = interface - self.y[i]   # distance into PML
                 tdist = interface - (self.y[i] + self.dy[i]/2)   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
                 sy[i] = (dist / L)**self.pml_exp
                 tsy[i] = (tdist / L)**self.pml_exp
                 ay[i] = (dist / L)
@@ -327,6 +329,7 @@ class BCsMixin:
             for i in range(self.n_pml):
                 dist = interface - self.z[i]   # distance into PML
                 tdist = interface - (self.z[i] + self.dz[i]/2)   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
                 sz[i] = (dist / L)**self.pml_exp
                 tsz[i] = (tdist / L)**self.pml_exp
                 az[i] = (dist / L)
@@ -343,8 +346,9 @@ class BCsMixin:
             L = self.x[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(-self.n_pml-1, 0):
-                dist = self.x[i] + interface   # distance into PML
+                dist = self.x[i] - interface   # distance into PML
                 tdist = (self.x[i] - self.dx[i]/2) - interface   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L)**self.pml_exp
                 tsx[i] = (tdist / L)**self.pml_exp
                 ax[i] = (dist / L)
@@ -363,6 +367,7 @@ class BCsMixin:
             for i in range(-self.n_pml-1, 0):
                 dist = self.y[i] - interface   # distance into PML
                 tdist = (self.y[i] + self.dy[i]/2) - interface   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
                 sy[i] = (dist / L)**self.pml_exp
                 tsy[i] = (tdist / L)**self.pml_exp
                 ay[i] = (dist / L)

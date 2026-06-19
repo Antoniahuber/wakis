@@ -398,19 +398,19 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype
             )
 
-            self.dxy = self.iAx * self.itkapy * self.Py * self.Lz * self.Dbc_z
-            self.dxz = self.iAx * self.itkapz * self.Pz * self.Ly * self.Dbc_y
-            self.dyz = self.iAy * self.itkapz * self.Pz * self.Lx * self.Dbc_x
-            self.dyx = self.iAy * self.itkapx * self.Px * self.Lz * self.Dbc_z
-            self.dzx = self.iAz * self.itkapx * self.Px * self.Ly * self.Dbc_y
-            self.dzy = self.iAz * self.itkapy * self.Py * self.Lx * self.Dbc_x
+            self.dxy = self.iAx * self.ikapy * self.Py * self.Lz * self.Dbc_z
+            self.dxz = self.iAx * self.ikapz * self.Pz * self.Ly * self.Dbc_y
+            self.dyz = self.iAy * self.ikapz * self.Pz * self.Lx * self.Dbc_x
+            self.dyx = self.iAy * self.ikapx * self.Px * self.Lz * self.Dbc_z
+            self.dzx = self.iAz * self.ikapx * self.Px * self.Ly * self.Dbc_y
+            self.dzy = self.iAz * self.ikapy * self.Py * self.Lx * self.Dbc_x
 
-            self.dtxy = self.itAx * self.Dbc_z.transpose() * -self.Py.transpose() * self.ikapy * self.tLz
-            self.dtxz = self.itAx * self.Dbc_y.transpose() * -self.Pz.transpose() * self.ikapz * self.tLy
-            self.dtyz = self.itAy * self.Dbc_x.transpose() * -self.Pz.transpose() * self.ikapz * self.tLx
-            self.dtyx = self.itAy * self.Dbc_z.transpose() * -self.Px.transpose() * self.ikapx * self.tLz
-            self.dtzx = self.itAz * self.Dbc_y.transpose() * -self.Px.transpose() * self.ikapx * self.tLy
-            self.dtzy = self.itAz * self.Dbc_x.transpose() * -self.Py.transpose() * self.ikapy * self.tLx
+            self.dtxy = self.itAx * self.Dbc_z.transpose() * -self.Py.transpose() * self.itkapy * self.tLz
+            self.dtxz = self.itAx * self.Dbc_y.transpose() * -self.Pz.transpose() * self.itkapz * self.tLy
+            self.dtyz = self.itAy * self.Dbc_x.transpose() * -self.Pz.transpose() * self.itkapz * self.tLx
+            self.dtyx = self.itAy * self.Dbc_z.transpose() * -self.Px.transpose() * self.itkapx * self.tLz
+            self.dtzx = self.itAz * self.Dbc_y.transpose() * -self.Px.transpose() * self.itkapx * self.tLy
+            self.dtzy = self.itAz * self.Dbc_x.transpose() * -self.Py.transpose() * self.itkapy * self.tLx
 
             self.pml_b_H = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
@@ -426,17 +426,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             )
 
             # Convolution Parameter computation, only valid if sigma is zero in physical domain
-            self.pml_b_E.fromarray(np.exp(
+            self.pml_b_H.fromarray(np.exp(
                 -(self.sigma_pml.toarray() / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0) * self.dt))
             denom = self.sigma_pml.toarray() + self.kappa.toarray() * self.alpha.toarray()
             ratio = np.divide(self.sigma_pml.toarray(), denom, out=np.zeros_like(self.sigma_pml.toarray()), where=denom != 0)
-            self.pml_c_E.fromarray(ratio * (self.pml_b_E.toarray() - 1.0))
+            self.pml_c_H.fromarray(ratio * (self.pml_b_H.toarray() - 1.0))
 
-            self.pml_b_H.fromarray(np.exp(
+            self.pml_b_E.fromarray(np.exp(
                 -(self.tsigma_pml.toarray() / (self.tkappa.toarray()*eps_0) + self.talpha.toarray()/ eps_0) * self.dt))
             denom = self.tsigma_pml.toarray() + self.tkappa.toarray() * self.talpha.toarray()
             ratio = np.divide(self.tsigma_pml.toarray(), denom, out=np.zeros_like(self.tsigma_pml.toarray()), where=denom != 0)
-            self.pml_c_H.fromarray(ratio * (self.pml_b_H.toarray() - 1.0))
+            self.pml_c_E.fromarray(ratio * (self.pml_b_E.toarray() - 1.0))
 
             self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
