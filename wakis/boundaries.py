@@ -256,6 +256,8 @@ class BCsMixin:
         eta_0 = 376.730313412    
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
         ax, ay, az = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        tsx, tsy, tsz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        tax, tay, taz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
         self.kappa = (
             Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
         )
@@ -288,25 +290,17 @@ class BCsMixin:
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 dist = interface - self.x[i]   # distance into PML
+                tdist = interface - (self.x[i] + self.dx[i]/2)   # distance into PML for half-grid points
                 sx[i] = (dist / L)**self.pml_exp
                 ax[i] = (dist / L)
+                tax[i] = (tdist / L)
+                tsx[i] = (tdist / L)**self.pml_exp
                 sigma_pml_x[i] = sigma_max * sx[i]
                 kappa_x[i] = 1 + (self.kappa_max - 1) * sx[i]
                 alpha_x[i] = self.alpha_max * (1 - ax[i])
-
-            tsigma_pml_x = (sigma_pml_x[1:] + sigma_pml_x[:-1]) / 2
-            tsigma_pml_x = np.append(tsigma_pml_x, tsigma_pml_x[-1])
-            tsigma_pml_x[self.n_pml] = 0
-            tkappa_x = (kappa_x[1:] + kappa_x[:-1]) / 2
-            tkappa_x = np.append(tkappa_x, tkappa_x[-1])
-            tkappa_x[self.n_pml] = 1
-            talpha_x = (alpha_x[1:] + alpha_x[:-1]) / 2
-            talpha_x = np.append(talpha_x, talpha_x[-1])
-            talpha_x[self.n_pml] = 0
-
-            for d in ["x", "y", "z"]:
-                self.ieps[:self.n_pml, :, :, d] = 1/eps_0
-
+                tsigma_pml_x[i] = sigma_max * tsx[i]
+                tkappa_x[i] = 1 + (self.kappa_max - 1) * tsx[i]
+                talpha_x[i] = self.alpha_max * (1 - tax[i])
 
         if self.bc_low[1].lower() == "pml":
             interface = self.y[self.n_pml]
@@ -314,24 +308,17 @@ class BCsMixin:
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 dist = interface - self.y[i]   # distance into PML
+                tdist = interface - (self.y[i] + self.dy[i]/2)   # distance into PML for half-grid points
                 sy[i] = (dist / L)**self.pml_exp
+                tsy[i] = (tdist / L)**self.pml_exp
                 ay[i] = (dist / L)
+                tay[i] = (tdist / L)
                 sigma_pml_y[i] = sigma_max * sy[i]
                 kappa_y[i] = 1 + (self.kappa_max - 1) * sy[i]
                 alpha_y[i] = self.alpha_max * (1 - ay[i])
-
-            tsigma_pml_y = (sigma_pml_y[1:] + sigma_pml_y[:-1]) / 2
-            tsigma_pml_y = np.append(tsigma_pml_y, tsigma_pml_y[-1])
-            tsigma_pml_y[self.n_pml] = 0
-            tkappa_y = (kappa_y[1:] + kappa_y[:-1]) / 2
-            tkappa_y = np.append(tkappa_y, tkappa_y[-1])
-            tkappa_y[self.n_pml] = 1
-            talpha_y = (alpha_y[1:] + alpha_y[:-1]) / 2
-            talpha_y = np.append(talpha_y, talpha_y[-1])
-            talpha_y[self.n_pml] = 0
-
-            for d in ["x", "y", "z"]:
-                self.ieps[:, :self.n_pml, :, d] = 1/eps_0                
+                tsigma_pml_y[i] = sigma_max * tsy[i]
+                tkappa_y[i] = 1 + (self.kappa_max - 1) * tsy[i]
+                talpha_y[i] = self.alpha_max * (1 - tay[i])     
 
         if self.bc_low[2].lower() == "pml":
             interface = self.z[self.n_pml]
@@ -339,109 +326,93 @@ class BCsMixin:
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 dist = interface - self.z[i]   # distance into PML
+                tdist = interface - (self.z[i] + self.dz[i]/2)   # distance into PML for half-grid points
+                sz[i] = (dist / L)**self.pml_exp
+                tsz[i] = (tdist / L)**self.pml_exp
+                az[i] = (dist / L)
+                taz[i] = (tdist / L)
+                sigma_pml_z[i] = sigma_max * sz[i]
+                kappa_z[i] = 1 + (self.kappa_max - 1) * sz[i]
+                alpha_z[i] = self.alpha_max * (1 - az[i])
+                tsigma_pml_z[i] = sigma_max * tsz[i]
+                tkappa_z[i] = 1 + (self.kappa_max - 1) * tsz[i]
+                talpha_z[i] = self.alpha_max * (1 - taz[i])
+
+        if self.bc_high[0].lower() == "pml":
+            interface = self.x[-1-self.n_pml]
+            L = self.x[-1] - interface
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(-self.n_pml-1, 0):
+                dist = self.x[i] + interface   # distance into PML
+                tdist = (self.x[i] - self.dx[i]/2) - interface   # distance into PML for half-grid points
+                sx[i] = (dist / L)**self.pml_exp
+                tsx[i] = (tdist / L)**self.pml_exp
+                ax[i] = (dist / L)
+                tax[i] = (tdist / L)
+                sigma_pml_x[i] = sigma_max * sx[i]
+                kappa_x[i] = 1 + (self.kappa_max - 1) * sx[i]
+                alpha_x[i] = self.alpha_max * (1 - ax[i])
+                tsigma_pml_x[i] = sigma_max * tsx[i]
+                tkappa_x[i] = 1 + (self.kappa_max - 1) * tsx[i]
+                talpha_x[i] = self.alpha_max * (1 - tax[i]) 
+
+        if self.bc_high[1].lower() == "pml":
+            interface = self.y[-1-self.n_pml]
+            L = self.y[-1] - interface
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(-self.n_pml-1, 0):
+                dist = self.y[i] - interface   # distance into PML
+                tdist = (self.y[i] + self.dy[i]/2) - interface   # distance into PML for half-grid points
+                sy[i] = (dist / L)**self.pml_exp
+                tsy[i] = (tdist / L)**self.pml_exp
+                ay[i] = (dist / L)
+                tay[i] = (tdist / L)
+                sigma_pml_y[i] = sigma_max * sy[i]
+                kappa_y[i] = 1 + (self.kappa_max - 1) * sy[i]
+                alpha_y[i] = self.alpha_max * (1 - ay[i])
+                tsigma_pml_y[i] = sigma_max * tsy[i]
+                tkappa_y[i] = 1 + (self.kappa_max - 1) * tsy[i]
+                talpha_y[i] = self.alpha_max * (1 - tay[i]) 
+
+        if self.bc_high[2].lower() == "pml":
+            interface = self.z[-1-self.n_pml]
+            L = self.z[-1] - interface
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+
+            for i in range(-self.n_pml-1, 0):
+                dist = self.z[i] - interface   # distance into PML
                 sz[i] = (dist / L)**self.pml_exp
                 az[i] = (dist / L)
                 sigma_pml_z[i] = sigma_max * sz[i]
                 kappa_z[i] = 1 + (self.kappa_max - 1) * sz[i]
                 alpha_z[i] = self.alpha_max * (1 - az[i])
 
-            tsigma_pml_z = (sigma_pml_z[1:] + sigma_pml_z[:-1]) / 2
-            tsigma_pml_z = np.append(tsigma_pml_z, tsigma_pml_z[-1])
-            tsigma_pml_z[self.n_pml] = 0
-            tkappa_z = (kappa_z[1:] + kappa_z[:-1]) / 2
-            tkappa_z = np.append(tkappa_z, tkappa_z[-1])
-            tkappa_z[self.n_pml] = 1
-            talpha_z = (alpha_z[1:] + alpha_z[:-1]) / 2
-            talpha_z = np.append(talpha_z, talpha_z[-1])
-            talpha_z[self.n_pml] = 0
+                tdist = self.z[i] + self.dz[i]/2 - interface   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
+                tsz[i] = (tdist / L)**self.pml_exp
+                taz[i] = (tdist / L)
+                tsigma_pml_z[i] = sigma_max * tsz[i]
+                tkappa_z[i] = 1 + (self.kappa_max - 1) * tsz[i]
+                talpha_z[i] = self.alpha_max * (1 - taz[i]) 
 
-            for d in ["x", "y", "z"]:
-                self.ieps[:, :, :self.n_pml, d] = 1/eps_0
-
-
-        if self.bc_high[0].lower() == "pml":
-            interface = self.x[-1-self.n_pml]
-            L = self.x[-1] - interface
-            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            for i in range(self.n_pml):
-                dist = self.x[-self.n_pml+i] - interface   # distance into PML
-                sx[-self.n_pml+i] = (dist / L)**self.pml_exp
-                ax[-self.n_pml+i] = (dist / L)
-                sigma_pml_x[-self.n_pml+i] = sigma_max * sx[-self.n_pml+i]
-                kappa_x[-self.n_pml+i] = 1 + (self.kappa_max - 1) * sx[-self.n_pml+i]
-                alpha_x[-self.n_pml+i] = self.alpha_max * (1 - ax[-self.n_pml+i])
-
-            tsigma_pml_x = (sigma_pml_x[1:] + sigma_pml_x[:-1]) / 2
-            tsigma_pml_x = np.append(tsigma_pml_x, tsigma_pml_x[-1])
-            tsigma_pml_x[-self.n_pml-1] = 0
-            tkappa_x = (kappa_x[1:] + kappa_x[:-1]) / 2
-            tkappa_x = np.append(tkappa_x, tkappa_x[-1])
-            tkappa_x[-self.n_pml-1] = 1
-            talpha_x = (alpha_x[1:] + alpha_x[:-1]) / 2
-            talpha_x = np.append(talpha_x, talpha_x[-1])
-            talpha_x[-self.n_pml-1] = 0
-
-            for d in ["x", "y", "z"]:
-                self.ieps[-self.n_pml-1:, :, :, d] = 1/eps_0
-
-        if self.bc_high[1].lower() == "pml":
-            interface = self.y[-1-self.n_pml]
-            L = self.y[-1] - interface
-            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            for i in range(self.n_pml):
-                dist = self.y[-self.n_pml+i] - interface   # distance into PML
-                sy[-self.n_pml+i] = (dist / L)**self.pml_exp
-                ay[-self.n_pml+i] = (dist / L)
-                sigma_pml_y[-self.n_pml+i] = sigma_max * sy[-self.n_pml+i]
-                kappa_y[-self.n_pml+i] = 1 + (self.kappa_max - 1) * sy[-self.n_pml+i]
-                alpha_y[-self.n_pml+i] = self.alpha_max * (1 - ay[-self.n_pml+i])
-
-            tsigma_pml_y = (sigma_pml_y[1:] + sigma_pml_y[:-1]) / 2
-            tsigma_pml_y = np.append(tsigma_pml_y, tsigma_pml_y[-1])
-            tsigma_pml_y[-self.n_pml-1] = 0
-            tkappa_y = (kappa_y[1:] + kappa_y[:-1]) / 2
-            tkappa_y = np.append(tkappa_y, tkappa_y[-1])
-            tkappa_y[-self.n_pml-1] = 1
-            talpha_y = (alpha_y[1:] + alpha_y[:-1]) / 2
-            talpha_y = np.append(talpha_y, talpha_y[-1])
-            talpha_y[-self.n_pml-1] = 0
-
-            for d in ["x", "y", "z"]:
-                self.ieps[:, -self.n_pml-1:, :, d] = 1/eps_0
-
-        if self.bc_high[2].lower() == "pml":
-            interface = self.z[-1-self.n_pml]
-            L = self.z[-1] - interface
-            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            for i in range(self.n_pml):
-                dist = self.z[-self.n_pml+i] - interface   # distance into PML
-                sz[-self.n_pml+i] = (dist / L)**self.pml_exp
-                az[-self.n_pml+i] = (dist / L)
-                sigma_pml_z[-self.n_pml+i] = sigma_max * sz[-self.n_pml+i]
-                kappa_z[-self.n_pml+i] = 1 + (self.kappa_max - 1) * sz[-self.n_pml+i]
-                alpha_z[-self.n_pml+i] = self.alpha_max * (1 - az[-self.n_pml+i])
-
-            tsigma_pml_z = (sigma_pml_z[1:] + sigma_pml_z[:-1]) / 2
-            tsigma_pml_z = np.append(tsigma_pml_z, tsigma_pml_z[-1])
-            tsigma_pml_z[-self.n_pml-1] = 0
-            tkappa_z = (kappa_z[1:] + kappa_z[:-1]) / 2
-            tkappa_z = np.append(tkappa_z, tkappa_z[-1])
-            tkappa_z[-self.n_pml-1] = 1
-            talpha_z = (alpha_z[1:] + alpha_z[:-1]) / 2
-            talpha_z = np.append(talpha_z, talpha_z[-1])
-            talpha_z[-self.n_pml-1] = 0
-
-            for d in ["x", "y", "z"]:
-                self.ieps[:, :, -self.n_pml-1:, d] = 1/eps_0
-
-        for d in ["x", "y", "z"]:
-            self.sigma_pml[:, :, :, d] = sigma_pml_x[:, np.newaxis, np.newaxis] + sigma_pml_y[np.newaxis, :, np.newaxis] + sigma_pml_z[np.newaxis, np.newaxis, :]
-            self.tsigma_pml[:, :, :, d] = tsigma_pml_x[:, np.newaxis, np.newaxis] + tsigma_pml_y[np.newaxis, :, np.newaxis] + tsigma_pml_z[np.newaxis, np.newaxis, :]
-            self.kappa[:, :, :, d] = kappa_x[:, np.newaxis, np.newaxis] * kappa_y[np.newaxis, :, np.newaxis] * kappa_z[np.newaxis, np.newaxis, :]
-            self.tkappa[:, :, :, d] = tkappa_x[:, np.newaxis, np.newaxis] * tkappa_y[np.newaxis, :, np.newaxis] * tkappa_z[np.newaxis, np.newaxis, :]
-            self.alpha[:, :, :, d] = alpha_x[:, np.newaxis, np.newaxis] + alpha_y[np.newaxis, :, np.newaxis] + alpha_z[np.newaxis, np.newaxis, :]
-            self.talpha[:, :, :, d] = talpha_x[:, np.newaxis, np.newaxis] + talpha_y[np.newaxis, :, np.newaxis] + talpha_z[np.newaxis, np.newaxis, :]
-
+        self.sigma_pml[:, :, :, 'x'] = sigma_pml_x[:, np.newaxis, np.newaxis]
+        self.sigma_pml[:, :, :, 'y'] = sigma_pml_y[np.newaxis, :, np.newaxis]
+        self.sigma_pml[:, :, :, 'z'] = sigma_pml_z[np.newaxis, np.newaxis, :]
+        self.tsigma_pml[:, :, :, 'x'] = tsigma_pml_x[:, np.newaxis, np.newaxis]
+        self.tsigma_pml[:, :, :, 'y'] = tsigma_pml_y[np.newaxis, :, np.newaxis]
+        self.tsigma_pml[:, :, :, 'z'] = tsigma_pml_z[np.newaxis, np.newaxis, :]
+        self.kappa[:, :, :, 'x'] = kappa_x[:, np.newaxis, np.newaxis]
+        self.kappa[:, :, :, 'y'] = kappa_y[np.newaxis, :, np.newaxis]
+        self.kappa[:, :, :, 'z'] = kappa_z[np.newaxis, np.newaxis, :]
+        self.tkappa[:, :, :, 'x'] = tkappa_x[:, np.newaxis, np.newaxis]
+        self.tkappa[:, :, :, 'y'] = tkappa_y[np.newaxis, :, np.newaxis]
+        self.tkappa[:, :, :, 'z'] = tkappa_z[np.newaxis, np.newaxis, :]
+        self.alpha[:, :, :, 'x'] = alpha_x[:, np.newaxis, np.newaxis]
+        self.alpha[:, :, :, 'y'] = alpha_y[np.newaxis, :, np.newaxis]
+        self.alpha[:, :, :, 'z'] = alpha_z[np.newaxis, np.newaxis, :]
+        self.talpha[:, :, :, 'x'] = talpha_x[:, np.newaxis, np.newaxis]
+        self.talpha[:, :, :, 'y'] = talpha_y[np.newaxis, :, np.newaxis]
+        self.talpha[:, :, :, 'z'] = talpha_z[np.newaxis, np.newaxis, :]
 
     def get_abc(self):
         """

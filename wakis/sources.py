@@ -956,7 +956,7 @@ class ModePacket:
         self.phase = phase
         self.is_first_update = True
         if self.sigma_t is None:
-            self.sigma_t = 3.0 / self.f  # ~5 periods width
+            self.sigma_t = 1.0 / self.f  # ~5 periods width
         if self.tinj is None:
             self.tinj = 6 * self.sigma_t
 
