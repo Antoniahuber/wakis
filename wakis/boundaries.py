@@ -345,9 +345,9 @@ class BCsMixin:
             interface = self.x[-1-self.n_pml]
             L = self.x[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            for i in range(-self.n_pml-1, 0):
+            for i in range(-self.n_pml, 0):
                 dist = self.x[i] - interface   # distance into PML
-                tdist = (self.x[i] - self.dx[i]/2) - interface   # distance into PML for half-grid points
+                tdist = (self.x[i] + self.dx[i]/2) - interface   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L)**self.pml_exp
                 tsx[i] = (tdist / L)**self.pml_exp
@@ -364,7 +364,7 @@ class BCsMixin:
             interface = self.y[-1-self.n_pml]
             L = self.y[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
-            for i in range(-self.n_pml-1, 0):
+            for i in range(-self.n_pml, 0):
                 dist = self.y[i] - interface   # distance into PML
                 tdist = (self.y[i] + self.dy[i]/2) - interface   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
@@ -384,7 +384,7 @@ class BCsMixin:
             L = self.z[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
 
-            for i in range(-self.n_pml-1, 0):
+            for i in range(-self.n_pml, 0):
                 dist = self.z[i] - interface   # distance into PML
                 sz[i] = (dist / L)**self.pml_exp
                 az[i] = (dist / L)
@@ -418,6 +418,14 @@ class BCsMixin:
         self.talpha[:, :, :, 'x'] = talpha_x[:, np.newaxis, np.newaxis]
         self.talpha[:, :, :, 'y'] = talpha_y[np.newaxis, :, np.newaxis]
         self.talpha[:, :, :, 'z'] = talpha_z[np.newaxis, np.newaxis, :]
+
+        del sigma_pml_x, sigma_pml_y, sigma_pml_z
+        del kappa_x, kappa_y, kappa_z
+        del alpha_x, alpha_y, alpha_z
+        del tsigma_pml_x, tsigma_pml_y, tsigma_pml_z
+        del tkappa_x, tkappa_y, tkappa_z
+        del talpha_x, talpha_y, talpha_z
+        del sx, sy, sz, ax, ay, az, tax, tay, taz, tsx, tsy, tsz
 
     def get_abc(self):
         """

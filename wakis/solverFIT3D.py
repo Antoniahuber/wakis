@@ -161,15 +161,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.z = self.grid.z[:-1] + self.dz / 2
 
         self.L = self.grid.L
-        self.iL = self.grid.iL
-        self.A = self.grid.A
         self.iA = self.grid.iA
         self.tL = self.grid.tL
-        self.itL = self.grid.itL
-        self.tA = self.grid.tA
         self.itA = self.grid.itA
-        self.iV = self.grid.iV
-        self.itV = self.grid.itV
         self.update_logger(["grid", "background"])
 
         # Wake computation
@@ -398,19 +392,21 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype
             )
 
-            self.dxy = self.iAx * self.ikapy * self.Py * self.Lz * self.Dbc_z
-            self.dxz = self.iAx * self.ikapz * self.Pz * self.Ly * self.Dbc_y
-            self.dyz = self.iAy * self.ikapz * self.Pz * self.Lx * self.Dbc_x
-            self.dyx = self.iAy * self.ikapx * self.Px * self.Lz * self.Dbc_z
-            self.dzx = self.iAz * self.ikapx * self.Px * self.Ly * self.Dbc_y
-            self.dzy = self.iAz * self.ikapy * self.Py * self.Lx * self.Dbc_x
+            self.dxy = self.iAx * self.itkapy * self.Py * self.Dbc_z * self.Lz
+            self.dxz = self.iAx * self.itkapz * self.Pz * self.Dbc_y * self.Ly
+            self.dyz = self.iAy * self.itkapz * self.Pz * self.Dbc_x * self.Lx
+            self.dyx = self.iAy * self.itkapx * self.Px * self.Dbc_z * self.Lz
+            self.dzx = self.iAz * self.itkapx * self.Px * self.Dbc_y * self.Ly
+            self.dzy = self.iAz * self.itkapy * self.Py * self.Dbc_x * self.Lx
 
-            self.dtxy = self.itAx * self.Dbc_z.transpose() * -self.Py.transpose() * self.itkapy * self.tLz
-            self.dtxz = self.itAx * self.Dbc_y.transpose() * -self.Pz.transpose() * self.itkapz * self.tLy
-            self.dtyz = self.itAy * self.Dbc_x.transpose() * -self.Pz.transpose() * self.itkapz * self.tLx
-            self.dtyx = self.itAy * self.Dbc_z.transpose() * -self.Px.transpose() * self.itkapx * self.tLz
-            self.dtzx = self.itAz * self.Dbc_y.transpose() * -self.Px.transpose() * self.itkapx * self.tLy
-            self.dtzy = self.itAz * self.Dbc_x.transpose() * -self.Py.transpose() * self.itkapy * self.tLx
+            self.dtxy = self.itAx * self.ikapy * self.Dbc_z.transpose() * -self.Py.transpose() * self.tLz
+            self.dtxz = self.itAx * self.ikapz * self.Dbc_y.transpose() * -self.Pz.transpose() * self.tLy
+            self.dtyz = self.itAy * self.ikapz * self.Dbc_x.transpose() * -self.Pz.transpose() * self.tLx
+            self.dtyx = self.itAy * self.ikapx * self.Dbc_z.transpose() * -self.Px.transpose() * self.tLz
+            self.dtzx = self.itAz * self.ikapx * self.Dbc_y.transpose() * -self.Px.transpose() * self.tLy
+            self.dtzy = self.itAz * self.ikapy * self.Dbc_x.transpose() * -self.Py.transpose() * self.tLx
+
+            del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz, self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz, self.ikapx, self.ikapy, self.ikapz, self.itkapx, self.itkapy, self.itkapz
 
             self.pml_b_H = (
             Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
@@ -426,33 +422,34 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             )
 
             # Convolution Parameter computation, only valid if sigma is zero in physical domain
-            self.pml_b_H.fromarray(np.exp(
-                -(self.sigma_pml.toarray() / (self.kappa.toarray()*eps_0) + self.alpha.toarray()/ eps_0) * self.dt))
+            self.pml_b_E.fromarray(np.exp(
+                -(self.sigma_pml.toarray() / (self.kappa.toarray()) + self.alpha.toarray()) * self.dt / eps_0))
             denom = self.sigma_pml.toarray() + self.kappa.toarray() * self.alpha.toarray()
             ratio = np.divide(self.sigma_pml.toarray(), denom, out=np.zeros_like(self.sigma_pml.toarray()), where=denom != 0)
-            self.pml_c_H.fromarray(ratio * (self.pml_b_H.toarray() - 1.0))
+            self.pml_c_E.fromarray(ratio * (self.pml_b_E.toarray() - 1.0))
 
-            self.pml_b_E.fromarray(np.exp(
-                -(self.tsigma_pml.toarray() / (self.tkappa.toarray()*eps_0) + self.talpha.toarray()/ eps_0) * self.dt))
+            self.pml_b_H.fromarray(np.exp(
+                -(self.tsigma_pml.toarray() / (self.tkappa.toarray()) + self.talpha.toarray()) * self.dt / eps_0))
             denom = self.tsigma_pml.toarray() + self.tkappa.toarray() * self.talpha.toarray()
             ratio = np.divide(self.tsigma_pml.toarray(), denom, out=np.zeros_like(self.tsigma_pml.toarray()), where=denom != 0)
-            self.pml_c_E.fromarray(ratio * (self.pml_b_E.toarray() - 1.0))
+            self.pml_c_H.fromarray(ratio * (self.pml_b_H.toarray() - 1.0))
+
+            del self.kappa, self.alpha, self.sigma_pml, self.tkappa, self.talpha, self.tsigma_pml
 
             self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
             self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
 
-        self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
-        self.itDaiDepsDstC = (
-            self.iDeps * self.itDa * self.C.transpose() * self.tDs
-        )
+        else:
+            self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
+            self.itDaiDepsDstC = (
+                self.iDeps * self.itDa * self.C.transpose() * self.tDs
+            )
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
                 print("Using MKL backend for time-stepping...")
-            self.tDsiDmuiDaC = mkl_sparse_mat(self.tDsiDmuiDaC)
-            self.itDaiDepsDstC = mkl_sparse_mat(self.itDaiDepsDstC)
             self.one_step = (
                 self._mpi_one_step_mkl if self.use_mpi else self._one_step_mkl
             )
@@ -469,14 +466,15 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.dtyx = mkl_sparse_mat(self.dtyx)
                 self.dtzx = mkl_sparse_mat(self.dtzx)
                 self.dtzy = mkl_sparse_mat(self.dtzy)
+            else:
+                self.tDsiDmuiDaC = mkl_sparse_mat(self.tDsiDmuiDaC)
+                self.itDaiDepsDstC = mkl_sparse_mat(self.itDaiDepsDstC)
 
         # Move to GPU
         if use_gpu:
             if verbose:
                 print("Moving to GPU...")
             if imported_cupyx:
-                self.tDsiDmuiDaC = gpu_sparse_mat(self.tDsiDmuiDaC)
-                self.itDaiDepsDstC = gpu_sparse_mat(self.itDaiDepsDstC)
                 self.ieps.to_gpu()
                 self.sigma.to_gpu()
                 self.imu.to_gpu()
@@ -498,7 +496,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     self.pml_c_H.to_gpu()
                     self.pml_b_E.to_gpu()
                     self.pml_c_E.to_gpu()
-
+                else:
+                    self.tDsiDmuiDaC = gpu_sparse_mat(self.tDsiDmuiDaC)
+                    self.itDaiDepsDstC = gpu_sparse_mat(self.itDaiDepsDstC)
                     
             else:
                 raise ImportError(
@@ -1174,21 +1174,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         # Fields
         if hasattr(self, "BC"):
             del self.BC
-            del self.Dbc
-        if self.activate_pml:
-           #del self.kappa
-           #del self.alpha
-           pass
         del self.L, self.tL, self.iA, self.itA
 
         # Matrices
         del self.Px, self.Py, self.Pz
         del self.Ds, self.iDa, self.tDs, self.itDa
+        del self.Dbc
+        del self.Dbc_x, self.Dbc_y, self.Dbc_z
         del self.C
-        if self.activate_pml:
-            del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz
-            del self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz
-            del self.ikapx, self.ikapy, self.ikapz
 
     def save_state(self, filename="solver_state.h5", close=True):
         """
