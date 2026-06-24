@@ -5,6 +5,7 @@
 
 import numpy as np
 from scipy.constants import mu_0, epsilon_0
+from scipy.constants import c
 from scipy.sparse import diags
 
 from .field import Field
@@ -105,6 +106,21 @@ class BCsMixin:
                 shape=(3 * self.N, 3 * self.N),
                 dtype=np.int8,
             )
+            self.Dbc_x = diags(
+                self.BC.field_x,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_y = diags(
+                self.BC.field_y,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_z = diags(
+                self.BC.field_z,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
 
             # Update C (columns)
             self.C = self.C * self.Dbc
@@ -143,6 +159,21 @@ class BCsMixin:
             self.Dbc = diags(
                 self.BC.toarray(),
                 shape=(3 * self.N, 3 * self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_x = diags(
+                self.BC.field_x,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_y = diags(
+                self.BC.field_y,
+                shape=(self.N, self.N),
+                dtype=np.int8,
+            )
+            self.Dbc_z = diags(
+                self.BC.field_z,
+                shape=(self.N, self.N),
                 dtype=np.int8,
             )
 
@@ -185,125 +216,188 @@ class BCsMixin:
             True for x in self.bc_high if x.lower() == "pml"
         ):
             self.activate_pml = True
-            self.use_conductivity = True
 
     def _initialize_PML(self):
         """
-        Compute and apply PML sigma profiles to the solver conductivity tensor.
-
-        Uses configured PML settings (number of layers, profile function and
-        scaling) to set per-component conductivity in the PML regions. This is
-        used to absorb outgoing waves and reduce reflections at domain edges.
+        Compute the PML parameters for the low and high boundaries in each
+        direction. The PML parameters are stored in the ``sigmaPml``, ``kappa``, and ``alpha`` fields, which are used to calculate the b and c parameters of the CPML for
+        the electric and magnetic fields. The PML parameters are computed based on the distance into the PML region and the specified PML profile functions. The target reflection coefficient is set to 1e-8
         """
 
         # Initialize
+        eta_0 = mu_0 * c  # Characteristic impedance of free space
         sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
-        # pml_exp = 2
-        self.pml_lo = 5.0e-3
-        self.pml_hi = 1.0
-        self.pml_func = np.geomspace
-        self.pml_eps_r = 1.0
+        ax, ay, az = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        tsx, tsy, tsz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        tax, tay, taz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        R0 = 1e-8  # Target reflection coefficient for PML design
+        self.kappa = Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
+        self.tkappa = Field(self.Nx, self.Ny, self.Nz, use_ones=True, dtype=self.dtype)
+        self.alpha = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        self.talpha = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        self.sigmaPml = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        self.tsigmaPml = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        sigmaPml_x, sigmaPml_y, sigmaPml_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        kappa_x, kappa_y, kappa_z = np.ones(self.Nx), np.ones(self.Ny), np.ones(self.Nz)
+        alpha_x, alpha_y, alpha_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        tsigmaPml_x, tsigmaPml_y, tsigmaPml_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        tkappa_x, tkappa_y, tkappa_z = np.ones(self.Nx), np.ones(self.Ny), np.ones(self.Nz)
+        talpha_x, talpha_y, talpha_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
 
         # Fill
         if self.bc_low[0].lower() == "pml":
-            # sx[0:self.n_pml] = eps_0/(2*self.dt)*((self.x[self.n_pml] - self.x[:self.n_pml])/(self.n_pml*self.dx))**pml_exp
-            sx[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
-            for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the yz plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
-                sigma_0_pml = 0. #self.sigma[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
-                for i in range(self.n_pml):
-                    self.ieps[i, :, :, d] = ieps_0_pml
-                    self.sigma[i, :, :, d] = sigma_0_pml + sigma_mult_pml * sx[i]
-                    # if sx[i] > 0 : self.ieps[i, :, :, d] = 1/(eps_0+sx[i]*(2*self.dt))
+            interface = self.x[self.n_pml]
+            L = interface - self.x[0]
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(self.n_pml):
+                # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
+                dist = interface - self.x[i]   # distance into PML
+                tdist = interface - (self.x[i] + self.dx[i]/2)   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
+                sx[i] = (dist / L)**self.pml_exp
+                ax[i] = (dist / L)
+                tax[i] = (tdist / L)
+                tsx[i] = (tdist / L)**self.pml_exp
+                # Compute the PML parameters for this layer
+                sigmaPml_x[i] = sigma_max * sx[i]
+                kappa_x[i] = 1 + (self.kappa_max - 1) * sx[i]
+                alpha_x[i] = self.alpha_max * (1 - ax[i])
+                tsigmaPml_x[i] = sigma_max * tsx[i]
+                tkappa_x[i] = 1 + (self.kappa_max - 1) * tsx[i]
+                talpha_x[i] = self.alpha_max * (1 - tax[i])
 
         if self.bc_low[1].lower() == "pml":
-            # sy[0:self.n_pml] = 1/(2*self.dt)*((self.y[self.n_pml] - self.y[:self.n_pml])/(self.n_pml*self.dy))**pml_exp
-            sy[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
-            for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xz plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
-                sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
-                for j in range(self.n_pml):
-                    self.ieps[:, j, :, d] = ieps_0_pml
-                    self.sigma[:, j, :, d] = sigma_0_pml + sigma_mult_pml * sy[j]
-                    # if sy[j] > 0 : self.ieps[:, j, :, d] = 1/(eps_0+sy[j]*(2*self.dt))
+            interface = self.y[self.n_pml]
+            L = interface - self.y[0]
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(self.n_pml):
+                # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
+                dist = interface - self.y[i]   # distance into PML
+                tdist = interface - (self.y[i] + self.dy[i]/2)   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
+                sy[i] = (dist / L)**self.pml_exp
+                tsy[i] = (tdist / L)**self.pml_exp
+                ay[i] = (dist / L)
+                tay[i] = (tdist / L)
+                # Compute the PML parameters for this layer
+                sigmaPml_y[i] = sigma_max * sy[i]
+                kappa_y[i] = 1 + (self.kappa_max - 1) * sy[i]
+                alpha_y[i] = self.alpha_max * (1 - ay[i])
+                tsigmaPml_y[i] = sigma_max * tsy[i]
+                tkappa_y[i] = 1 + (self.kappa_max - 1) * tsy[i]
+                talpha_y[i] = self.alpha_max * (1 - tay[i])
 
         if self.bc_low[2].lower() == "pml":
-            # sz[0:self.n_pml] = eps_0/(2*self.dt)*((self.z[self.n_pml] - self.z[:self.n_pml])/(self.n_pml*self.dz))**pml_exp
-            sz[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
-            for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xy plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
-                sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
-                for k in range(self.n_pml):
-                    self.ieps[:, :, k, d] = ieps_0_pml
-                    self.sigma[:, :, k, d] = sigma_0_pml + sigma_mult_pml * sz[k]
-                    # if sz[k] > 0. : self.ieps[:, :, k, d] = 1/(np.mean(sz[:self.n_pml])*eps_0)
+            interface = self.z[self.n_pml]
+            L = interface - self.z[0]
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(self.n_pml):
+                # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
+                dist = interface - self.z[i]   # distance into PML
+                tdist = interface - (self.z[i] + self.dz[i]/2)   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
+                sz[i] = (dist / L)**self.pml_exp
+                tsz[i] = (tdist / L)**self.pml_exp
+                az[i] = (dist / L)
+                taz[i] = (tdist / L)
+                # Compute the PML parameters for this layer
+                sigmaPml_z[i] = sigma_max * sz[i]
+                kappa_z[i] = 1 + (self.kappa_max - 1) * sz[i]
+                alpha_z[i] = self.alpha_max * (1 - az[i])
+                tsigmaPml_z[i] = sigma_max * tsz[i]
+                tkappa_z[i] = 1 + (self.kappa_max - 1) * tsz[i]
+                talpha_z[i] = self.alpha_max * (1 - taz[i])
 
         if self.bc_high[0].lower() == "pml":
-            # sx[-self.n_pml:] = 1/(2*self.dt)*((self.x[-self.n_pml:] - self.x[-self.n_pml])/(self.n_pml*self.dx))**pml_exp
-            sx[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
-            for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the yz plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[-(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d]
-                sigma_0_pml = 0. #self.sigma[ -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
-                for i in range(self.n_pml):
-                    i += 1
-                    self.ieps[-i, :, :, d] = ieps_0_pml
-                    self.sigma[-i, :, :, d] = sigma_0_pml + sigma_mult_pml * sx[-i]
-                    # if sx[-i] > 0 : self.ieps[-i, :, :, d] = 1/(eps_0+sx[-i]*(2*self.dt))
+            interface = self.x[-1-self.n_pml]
+            L = self.x[-1] - interface
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(-self.n_pml, 0):
+                # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
+                dist = self.x[i] - interface   # distance into PML
+                tdist = (self.x[i] + self.dx[i]/2) - interface   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
+                sx[i] = (dist / L)**self.pml_exp
+                tsx[i] = (tdist / L)**self.pml_exp
+                ax[i] = (dist / L)
+                tax[i] = (tdist / L)
+                # Compute the PML parameters for this layer
+                sigmaPml_x[i] = sigma_max * sx[i]
+                kappa_x[i] = 1 + (self.kappa_max - 1) * sx[i]
+                alpha_x[i] = self.alpha_max * (1 - ax[i])
+                tsigmaPml_x[i] = sigma_max * tsx[i]
+                tkappa_x[i] = 1 + (self.kappa_max - 1) * tsx[i]
+                talpha_x[i] = self.alpha_max * (1 - tax[i])
 
         if self.bc_high[1].lower() == "pml":
-            # sy[-self.n_pml:] = 1/(2*self.dt)*((self.y[-self.n_pml:] - self.y[-self.n_pml])/(self.n_pml*self.dy))**pml_exp
-            sy[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
-            for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xz plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d]
-                sigma_0_pml = 0. #self.sigma[self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
-                for j in range(self.n_pml):
-                    j += 1
-                    self.ieps[:, -j, :, d] = ieps_0_pml
-                    self.sigma[:, -j, :, d] = sigma_0_pml + sigma_mult_pml * sy[-j]
-                    # if sy[-j] > 0 : self.ieps[:, -j, :, d] = 1/(eps_0+sy[-j]*(2*self.dt))
+            interface = self.y[-1-self.n_pml]
+            L = self.y[-1] - interface
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(-self.n_pml, 0):
+                # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
+                dist = self.y[i] - interface   # distance into PML
+                tdist = (self.y[i] + self.dy[i]/2) - interface   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
+                sy[i] = (dist / L)**self.pml_exp
+                tsy[i] = (tdist / L)**self.pml_exp
+                ay[i] = (dist / L)
+                tay[i] = (tdist / L)
+                # Compute the PML parameters for this layer
+                sigmaPml_y[i] = sigma_max * sy[i]
+                kappa_y[i] = 1 + (self.kappa_max - 1) * sy[i]
+                alpha_y[i] = self.alpha_max * (1 - ay[i])
+                tsigmaPml_y[i] = sigma_max * tsy[i]
+                tkappa_y[i] = 1 + (self.kappa_max - 1) * tsy[i]
+                talpha_y[i] = self.alpha_max * (1 - tay[i])
 
         if self.bc_high[2].lower() == "pml":
-            # sz[-self.n_pml:] = eps_0/(2*self.dt)*((self.z[-self.n_pml:] - self.z[-self.n_pml])/(self.n_pml*self.dz))**pml_exp
-            sz[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
-            for d in ["x", "y", "z"]:
-                # Get the properties from the layer before the PML
-                # Take the values at the center of the xy plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d]
-                sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d]
-                sigma_mult_pml = (
-                    1 if sigma_0_pml < 1 else sigma_0_pml
-                )  # avoid null sigma in PML for relaxation time computation
-                for k in range(self.n_pml):
-                    k += 1
-                    self.ieps[:, :, -k, d] = ieps_0_pml
-                    self.sigma[:, :, -k, d] = sigma_0_pml + sigma_mult_pml * sz[-k]
-                    # self.ieps[:, :, -k, d] = 1/(np.mean(sz[-self.n_pml:])*eps_0)
+            interface = self.z[-1-self.n_pml]
+            L = self.z[-1] - interface
+            sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
+            for i in range(-self.n_pml, 0):
+                # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
+                dist = self.z[i] - interface   # distance into PML
+                tdist = self.z[i] + self.dz[i]/2 - interface   # distance into PML for half-grid points
+                tdist = max(0.0, min(tdist, L))
+                sz[i] = (dist / L)**self.pml_exp
+                tsz[i] = (tdist / L)**self.pml_exp
+                az[i] = (dist / L)
+                taz[i] = (tdist / L)
+                # Compute the PML parameters for this layer
+                sigmaPml_z[i] = sigma_max * sz[i]
+                kappa_z[i] = 1 + (self.kappa_max - 1) * sz[i]
+                alpha_z[i] = self.alpha_max * (1 - az[i])
+                tsigmaPml_z[i] = sigma_max * tsz[i]
+                tkappa_z[i] = 1 + (self.kappa_max - 1) * tsz[i]
+                talpha_z[i] = self.alpha_max * (1 - taz[i])
 
+        self.sigmaPml[:, :, :, 'x'] = sigmaPml_x[:, np.newaxis, np.newaxis]
+        self.sigmaPml[:, :, :, 'y'] = sigmaPml_y[np.newaxis, :, np.newaxis]
+        self.sigmaPml[:, :, :, 'z'] = sigmaPml_z[np.newaxis, np.newaxis, :]
+        self.tsigmaPml[:, :, :, 'x'] = tsigmaPml_x[:, np.newaxis, np.newaxis]
+        self.tsigmaPml[:, :, :, 'y'] = tsigmaPml_y[np.newaxis, :, np.newaxis]
+        self.tsigmaPml[:, :, :, 'z'] = tsigmaPml_z[np.newaxis, np.newaxis, :]
+        self.kappa[:, :, :, 'x'] = kappa_x[:, np.newaxis, np.newaxis]
+        self.kappa[:, :, :, 'y'] = kappa_y[np.newaxis, :, np.newaxis]
+        self.kappa[:, :, :, 'z'] = kappa_z[np.newaxis, np.newaxis, :]
+        self.tkappa[:, :, :, 'x'] = tkappa_x[:, np.newaxis, np.newaxis]
+        self.tkappa[:, :, :, 'y'] = tkappa_y[np.newaxis, :, np.newaxis]
+        self.tkappa[:, :, :, 'z'] = tkappa_z[np.newaxis, np.newaxis, :]
+        self.alpha[:, :, :, 'x'] = alpha_x[:, np.newaxis, np.newaxis]
+        self.alpha[:, :, :, 'y'] = alpha_y[np.newaxis, :, np.newaxis]
+        self.alpha[:, :, :, 'z'] = alpha_z[np.newaxis, np.newaxis, :]
+        self.talpha[:, :, :, 'x'] = talpha_x[:, np.newaxis, np.newaxis]
+        self.talpha[:, :, :, 'y'] = talpha_y[np.newaxis, :, np.newaxis]
+        self.talpha[:, :, :, 'z'] = talpha_z[np.newaxis, np.newaxis, :]
+
+        del sigmaPml_x, sigmaPml_y, sigmaPml_z
+        del kappa_x, kappa_y, kappa_z
+        del alpha_x, alpha_y, alpha_z
+        del tsigmaPml_x, tsigmaPml_y, tsigmaPml_z
+        del tkappa_x, tkappa_y, tkappa_z
+        del talpha_x, talpha_y, talpha_z
+        del sx, sy, sz, ax, ay, az, tax, tay, taz, tsx, tsy, tsz
+        
     def get_abc(self):
         """
         Save boundary field snapshots needed by the Absorbing Boundary
