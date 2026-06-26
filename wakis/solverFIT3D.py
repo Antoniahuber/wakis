@@ -664,10 +664,20 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            self.J_old = np.zeros_like(self.J.toarray())
+            if self.sourcetype == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
+        )
+
+        self.E.fromarray(
+            self.E.toarray()
+            + self.dt
+            * (
+                self.itDaiDepsDstC * self.H.toarray()
+                - self.ieps.toarray() * self.J.toarray()
+            )
         )
 
         # include current computation
@@ -680,22 +690,14 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.J.fromarray(self.J.toarray() + dJ)
                 self.J_old = Jtemp
 
-        self.E.fromarray(
-            self.E.toarray()
-            + self.dt
-            * (
-                self.itDaiDepsDstC * self.H.toarray()
-                - self.ieps.toarray() * self.J.toarray()
-            )
-        )
-
     def _one_step_cpml(self):
     # Including the convolutional terms for the CPML update equations
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            self.J_old = np.zeros_like(self.J.toarray())
+            if self.sourcetype == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
             if self.verbose>1:
                     print("Starting time-stepping with CPML...")
     
@@ -727,15 +729,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dtzxHy = self.dtzx * self.H.field_y
         dtzyHx = self.dtzy * self.H.field_x
 
-        if self.use_conductivity:
-            if self.sourcetype == "hard":
-                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
-            elif self.sourcetype == "soft":
-                Jtemp = self.sigma.toarray() * self.E.toarray()
-                dJ = (Jtemp - self.J_old)
-                self.J.fromarray(self.J.toarray() + dJ)
-                self.J_old = Jtemp
-
         self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
         self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
         self.psiEb.field_y = self.pml_b_E.field_x * self.psiEb.field_y + self.pml_c_E.field_x * dtyxHz
@@ -752,13 +745,23 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                             - self.dt * self.ieps.field_z * self.J.field_z
                             + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))
+
+        if self.use_conductivity:
+            if self.sourcetype == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.sourcetype == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
         
     def _one_step_mkl(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            self.J_old = np.zeros_like(self.J.toarray())
+            if self.sourcetype == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
 
         if self.activate_cpml:
 
@@ -797,15 +800,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEa.field_z = self.pml_b_E.field_x * self.psiEa.field_z + self.pml_c_E.field_x * dtzxHy
             self.psiEb.field_z = self.pml_b_E.field_y * self.psiEb.field_z + self.pml_c_E.field_y * dtzyHx
 
-            if self.use_conductivity:
-                if self.sourcetype == "hard":
-                    self.J.fromarray(self.sigma.toarray() * self.E.toarray())
-                elif self.sourcetype == "soft":
-                    Jtemp = self.sigma.toarray() * self.E.toarray()
-                    self.dJ = (Jtemp - self.J_old)
-                    self.J.fromarray(self.J.toarray() + self.dJ)
-                    self.J_old = Jtemp
-
             self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                                 - self.dt * self.ieps.field_x * self.J.field_x
                                 + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
@@ -815,11 +809,29 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                                 - self.dt * self.ieps.field_z * self.J.field_z
                                 + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z)) 
-                    
+            
+            if self.use_conductivity:
+                if self.sourcetype == "hard":
+                    self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+                elif self.sourcetype == "soft":
+                    Jtemp = self.sigma.toarray() * self.E.toarray()
+                    self.dJ = (Jtemp - self.J_old)
+                    self.J.fromarray(self.J.toarray() + self.dJ)
+                    self.J_old = Jtemp
+
         else:
             self.H.fromarray(
                 self.H.toarray()
                 - self.dt * dot_product_mkl(self.tDsiDmuiDaC, self.E.toarray())
+            )
+
+            self.E.fromarray(
+                self.E.toarray()
+                + self.dt
+                * (
+                    dot_product_mkl(self.itDaiDepsDstC, self.H.toarray())
+                    - self.ieps.toarray() * self.J.toarray()
+                )
             )
 
             # include current computation
@@ -831,15 +843,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     dJ = (Jtemp - self.J_old)
                     self.J.fromarray(self.J.toarray() + dJ)
                     self.J_old = Jtemp
-
-            self.E.fromarray(
-                self.E.toarray()
-                + self.dt
-                * (
-                    dot_product_mkl(self.itDaiDepsDstC, self.H.toarray())
-                    - self.ieps.toarray() * self.J.toarray()
-                )
-            )
 
     def _mpi_initialize(self):
         self.comm = self.grid.comm
@@ -856,6 +859,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            if self.sourcetype == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
@@ -875,13 +880,21 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._mpi_communicate(self.E)
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            if self.sourcetype == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.sourcetype == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
 
     def _mpi_one_step_mkl(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            if self.sourcetype == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray()
@@ -903,7 +916,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._mpi_communicate(self.E)
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            if self.sourcetype == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.sourcetype == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
 
     def _mpi_communicate(self, field):
         if self.use_gpu:
