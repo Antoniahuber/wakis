@@ -151,7 +151,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if use_stl:
             self.use_conductors = False
-        self.update_logger(["use_gpu", "use_mpi"])
+        self.update_logger(["use_gpu", "use_mpi", "sourcetype"])
 
         # Grid
         self.grid = grid

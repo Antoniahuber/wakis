@@ -113,6 +113,7 @@ class TestMPILossyCavity:
     solverLogs = {
         "use_gpu": False,  # updated in test_log_file
         "use_mpi": False,  # updated in test_log_file
+        "sourcetype": "hard",
         "background": "pec",
         "bc_low": ["pec", "pec", "pec"],
         "bc_high": ["pec", "pec", "pec"],
