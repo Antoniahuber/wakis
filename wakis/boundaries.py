@@ -19,7 +19,7 @@ class BCsMixin:
         Adjusts rows/columns of the curl operator ``C`` and the metric-diagonal
         matrices (``tDs``, ``itDa``) according to the low/high boundary
         condition lists ``bc_low`` and ``bc_high``. Handles periodic, PEC/PMC,
-        ABC and PML options and also configures MPI-internal faces when the
+        ABC and PML/CPML options and also configures MPI-internal faces when the
         grid is subdivided.
         """
         xlo, ylo, zlo = 1.0, 1.0, 1.0
@@ -72,19 +72,19 @@ class BCsMixin:
 
         # Dirichlet PEC: tangential E field = 0 at boundary
         if any(
-            True for x in self.bc_low if x.lower() in ("electric", "pec", "pml")
-        ) or any(True for x in self.bc_high if x.lower() in ("electric", "pec", "pml")):
-            if self.bc_low[0].lower() in ("electric", "pec", "pml"):
+            True for x in self.bc_low if x.lower() in ("electric", "pec", "pml", "cpml")
+        ) or any(True for x in self.bc_high if x.lower() in ("electric", "pec", "pml", "cpml")):
+            if self.bc_low[0].lower() in ("electric", "pec", "pml", "cpml"):
                 xlo = 0
-            if self.bc_low[1].lower() in ("electric", "pec", "pml"):
+            if self.bc_low[1].lower() in ("electric", "pec", "pml", "cpml"):
                 ylo = 0
-            if self.bc_low[2].lower() in ("electric", "pec", "pml"):
+            if self.bc_low[2].lower() in ("electric", "pec", "pml", "cpml"):
                 zlo = 0
-            if self.bc_high[0].lower() in ("electric", "pec", "pml"):
+            if self.bc_high[0].lower() in ("electric", "pec", "pml", "cpml"):
                 xhi = 0
-            if self.bc_high[1].lower() in ("electric", "pec", "pml"):
+            if self.bc_high[1].lower() in ("electric", "pec", "pml", "cpml"):
                 yhi = 0
-            if self.bc_high[2].lower() in ("electric", "pec", "pml"):
+            if self.bc_high[2].lower() in ("electric", "pec", "pml", "cpml"):
                 zhi = 0
 
             # Assemble matrix
@@ -216,12 +216,135 @@ class BCsMixin:
             True for x in self.bc_high if x.lower() == "pml"
         ):
             self.activate_pml = True
+            self.use_conductivity = True
+            
+        if any(True for x in self.bc_low if x.lower() == "cpml") or any(
+            True for x in self.bc_high if x.lower() == "cpml"
+        ):
+            self.activate_cpml = True
 
     def _initialize_PML(self):
         """
-        Compute the PML parameters for the low and high boundaries in each
-        direction. The PML parameters are stored in the ``sigmaPml``, ``kappa``, and ``alpha`` fields, which are used to calculate the b and c parameters of the CPML for
-        the electric and magnetic fields. The PML parameters are computed based on the distance into the PML region and the specified PML profile functions. The target reflection coefficient is set to 1e-8
+        Compute and apply PML sigma profiles to the solver conductivity tensor.
+
+        Uses configured PML settings (number of layers, profile function and
+        scaling) to set per-component conductivity in the PML regions. This is
+        used to absorb outgoing waves and reduce reflections at domain edges.
+        """
+
+        # Initialize
+        sx, sy, sz = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
+        # pml_exp = 2
+        self.pml_lo = 5.0e-3
+        self.pml_hi = 1.0
+        self.pml_func = np.geomspace
+        self.pml_eps_r = 1.0
+
+        # Fill
+        if self.bc_low[0].lower() == "pml":
+            # sx[0:self.n_pml] = eps_0/(2*self.dt)*((self.x[self.n_pml] - self.x[:self.n_pml])/(self.n_pml*self.dx))**pml_exp
+            sx[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
+            for d in ["x", "y", "z"]:
+                # Get the properties from the layer before the PML
+                # Take the values at the center of the yz plane
+                ieps_0_pml = 1/epsilon_0 #self.ieps[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
+                sigma_0_pml = 0. #self.sigma[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
+                sigma_mult_pml = (
+                    1 if sigma_0_pml < 1 else sigma_0_pml
+                )  # avoid null sigma in PML for relaxation time computation
+                for i in range(self.n_pml):
+                    self.ieps[i, :, :, d] = ieps_0_pml
+                    self.sigma[i, :, :, d] = sigma_0_pml + sigma_mult_pml * sx[i]
+                    # if sx[i] > 0 : self.ieps[i, :, :, d] = 1/(eps_0+sx[i]*(2*self.dt))
+
+        if self.bc_low[1].lower() == "pml":
+            # sy[0:self.n_pml] = 1/(2*self.dt)*((self.y[self.n_pml] - self.y[:self.n_pml])/(self.n_pml*self.dy))**pml_exp
+            sy[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
+            for d in ["x", "y", "z"]:
+                # Get the properties from the layer before the PML
+                # Take the values at the center of the xz plane
+                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
+                sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
+                sigma_mult_pml = (
+                    1 if sigma_0_pml < 1 else sigma_0_pml
+                )  # avoid null sigma in PML for relaxation time computation
+                for j in range(self.n_pml):
+                    self.ieps[:, j, :, d] = ieps_0_pml
+                    self.sigma[:, j, :, d] = sigma_0_pml + sigma_mult_pml * sy[j]
+                    # if sy[j] > 0 : self.ieps[:, j, :, d] = 1/(eps_0+sy[j]*(2*self.dt))
+
+        if self.bc_low[2].lower() == "pml":
+            # sz[0:self.n_pml] = eps_0/(2*self.dt)*((self.z[self.n_pml] - self.z[:self.n_pml])/(self.n_pml*self.dz))**pml_exp
+            sz[0 : self.n_pml] = self.pml_func(self.pml_hi, self.pml_lo, self.n_pml)
+            for d in ["x", "y", "z"]:
+                # Get the properties from the layer before the PML
+                # Take the values at the center of the xy plane
+                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
+                sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
+                sigma_mult_pml = (
+                    1 if sigma_0_pml < 1 else sigma_0_pml
+                )  # avoid null sigma in PML for relaxation time computation
+                for k in range(self.n_pml):
+                    self.ieps[:, :, k, d] = ieps_0_pml
+                    self.sigma[:, :, k, d] = sigma_0_pml + sigma_mult_pml * sz[k]
+                    # if sz[k] > 0. : self.ieps[:, :, k, d] = 1/(np.mean(sz[:self.n_pml])*eps_0)
+
+        if self.bc_high[0].lower() == "pml":
+            # sx[-self.n_pml:] = 1/(2*self.dt)*((self.x[-self.n_pml:] - self.x[-self.n_pml])/(self.n_pml*self.dx))**pml_exp
+            sx[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
+            for d in ["x", "y", "z"]:
+                # Get the properties from the layer before the PML
+                # Take the values at the center of the yz plane
+                ieps_0_pml = 1/epsilon_0 #self.ieps[-(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d]
+                sigma_0_pml = 0. #self.sigma[ -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d]
+                sigma_mult_pml = (
+                    1 if sigma_0_pml < 1 else sigma_0_pml
+                )  # avoid null sigma in PML for relaxation time computation
+                for i in range(self.n_pml):
+                    i += 1
+                    self.ieps[-i, :, :, d] = ieps_0_pml
+                    self.sigma[-i, :, :, d] = sigma_0_pml + sigma_mult_pml * sx[-i]
+                    # if sx[-i] > 0 : self.ieps[-i, :, :, d] = 1/(eps_0+sx[-i]*(2*self.dt))
+
+        if self.bc_high[1].lower() == "pml":
+            # sy[-self.n_pml:] = 1/(2*self.dt)*((self.y[-self.n_pml:] - self.y[-self.n_pml])/(self.n_pml*self.dy))**pml_exp
+            sy[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
+            for d in ["x", "y", "z"]:
+                # Get the properties from the layer before the PML
+                # Take the values at the center of the xz plane
+                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d]
+                sigma_0_pml = 0. #self.sigma[self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d]
+                sigma_mult_pml = (
+                    1 if sigma_0_pml < 1 else sigma_0_pml
+                )  # avoid null sigma in PML for relaxation time computation
+                for j in range(self.n_pml):
+                    j += 1
+                    self.ieps[:, -j, :, d] = ieps_0_pml
+                    self.sigma[:, -j, :, d] = sigma_0_pml + sigma_mult_pml * sy[-j]
+                    # if sy[-j] > 0 : self.ieps[:, -j, :, d] = 1/(eps_0+sy[-j]*(2*self.dt))
+
+        if self.bc_high[2].lower() == "pml":
+            # sz[-self.n_pml:] = eps_0/(2*self.dt)*((self.z[-self.n_pml:] - self.z[-self.n_pml])/(self.n_pml*self.dz))**pml_exp
+            sz[-self.n_pml :] = self.pml_func(self.pml_lo, self.pml_hi, self.n_pml)
+            for d in ["x", "y", "z"]:
+                # Get the properties from the layer before the PML
+                # Take the values at the center of the xy plane
+                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d]
+                sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d]
+                sigma_mult_pml = (
+                    1 if sigma_0_pml < 1 else sigma_0_pml
+                )  # avoid null sigma in PML for relaxation time computation
+                for k in range(self.n_pml):
+                    k += 1
+                    self.ieps[:, :, -k, d] = ieps_0_pml
+                    self.sigma[:, :, -k, d] = sigma_0_pml + sigma_mult_pml * sz[-k]
+                    # self.ieps[:, :, -k, d] = 1/(np.mean(sz[-self.n_pml:])*eps_0)
+                    
+    def _initialize_CPML(self):
+        """
+        Compute the CPML parameters for the low and high boundaries in each
+        direction. The CPML parameters are stored in the ``sigmaPml``, ``kappa``, and ``alpha`` fields, which are used to calculate the b and c parameters of the CPML for
+        the electric and magnetic fields. The CPML parameters are computed based on the distance into the CPML region and the specified CPML profile functions. The target reflection coefficient is set to 1e-8
         """
 
         # Initialize

@@ -57,6 +57,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         alpha_max=0.1,
         sigma_factor=1,
         pml_exp=4,
+        sourcetype="hard",
         bg=[1.0, 1.0],
         verbose=1,
     ):
@@ -142,6 +143,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.fmax = fmax  # maximum frequency for SIBC
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
+        self.activate_cpml = False  # Will turn true if cpml BCs are chosen
+        self.sourcetype = sourcetype  # 'hard' or 'soft' source update
         self.use_conductivity = False  # Will turn true with conductive material or pml
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
@@ -286,16 +289,26 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.activate_pml:
             if verbose:
                 print("Filling PML sigmas...")
+            self.n_pml = n_pml
+            self._initialize_PML()
+            self.update_logger(["n_pml"])
+            if verbose > 1:
+                print(f"    * PML thickness: {self.n_pml} cells")
+
+        # Fill PML BCs
+        if self.activate_cpml:
+            if verbose:
+                print("Filling CPML parameters...")
             self.one_step = self._one_step_cpml
             self.n_pml = n_pml
             self.kappa_max = kappa_max
             self.alpha_max = alpha_max
             self.sigma_factor = sigma_factor
             self.pml_exp = pml_exp
-            self._initialize_PML()
+            self._initialize_CPML()
             self.update_logger(["n_pml", "kappa_max", "alpha_max", "sigma_factor", "pml_exp"])
             if verbose > 1:
-                print(f"    * PML thickness: {self.n_pml} cells")
+                print(f"    * CPML thickness: {self.n_pml} cells")
 
         # Timestep calculation
         if verbose:
@@ -349,8 +362,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
 
-        if self.activate_pml:
-            # Calculate diagonal matrices for PML update equations
+        if self.activate_cpml:
+            # Calculate diagonal matrices for CPML update equations
             self.tLx = diags(
                 self.tL.field_x, shape=(N, N), dtype=self.dtype
             )
@@ -405,7 +418,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.itkapz = diags(
                 1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype
             )
-            # Compute combined derivative operators for PML update equations
+            # Compute combined derivative operators for CPML update equations
             self.dxy = self.iAx * self.itkapy * self.Py * self.Dbc_z * self.Lz
             self.dxz = self.iAx * self.itkapz * self.Pz * self.Dbc_y * self.Ly
             self.dyz = self.iAy * self.itkapz * self.Pz * self.Dbc_x * self.Lx
@@ -461,7 +474,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
                 print("Using MKL backend for time-stepping...")
-            if self.activate_pml:
+            if self.activate_cpml:
                 self.dxy = mkl_sparse_mat(self.dxy)
                 self.dxz = mkl_sparse_mat(self.dxz)
                 self.dyz = mkl_sparse_mat(self.dyz)
@@ -488,7 +501,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             if imported_cupyx:
                 self.ieps.to_gpu()
                 self.sigma.to_gpu()
-                if self.activate_pml:
+                if self.activate_cpml:
                     self.imu.to_gpu()
                     self.dxy = gpu_sparse_mat(self.dxy)
                     self.dxz = gpu_sparse_mat(self.dxz)
@@ -659,10 +672,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # include current computation
         if self.use_conductivity:
-            Jtemp = self.sigma.toarray() * self.E.toarray()
-            dJ = (Jtemp - self.J_old)
-            self.J.fromarray(self.J.toarray() + dJ)
-            self.J_old = Jtemp
+            if self.sourcetype == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.sourcetype == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
 
         self.E.fromarray(
             self.E.toarray()
@@ -712,10 +728,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dtzyHx = self.dtzy * self.H.field_x
 
         if self.use_conductivity:
-            Jtemp = self.sigma.toarray() * self.E.toarray()
-            dJ = (Jtemp - self.J_old)
-            self.J.fromarray(self.J.toarray() + dJ)
-            self.J_old = Jtemp
+            if self.sourcetype == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.sourcetype == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
 
         self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
         self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
@@ -741,7 +760,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._attrcleanup()
             self.J_old = np.zeros_like(self.J.toarray())
 
-        if self.activate_pml:
+        if self.activate_cpml:
 
             dxyEz = dot_product_mkl(self.dxy, self.E.field_z)
             dxzEy = dot_product_mkl(self.dxz, self.E.field_y)
@@ -779,10 +798,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEb.field_z = self.pml_b_E.field_y * self.psiEb.field_z + self.pml_c_E.field_y * dtzyHx
 
             if self.use_conductivity:
-                Jtemp = self.sigma.toarray() * self.E.toarray()
-                self.dJ = (Jtemp - self.J_old)
-                self.J.fromarray(self.J.toarray() + self.dJ)
-                self.J_old = Jtemp
+                if self.sourcetype == "hard":
+                    self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+                elif self.sourcetype == "soft":
+                    Jtemp = self.sigma.toarray() * self.E.toarray()
+                    self.dJ = (Jtemp - self.J_old)
+                    self.J.fromarray(self.J.toarray() + self.dJ)
+                    self.J_old = Jtemp
 
             self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                                 - self.dt * self.ieps.field_x * self.J.field_x
@@ -802,10 +824,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
             # include current computation
             if self.use_conductivity:
-                Jtemp = self.sigma.toarray() * self.E.toarray()
-                dJ = (Jtemp - self.J_old)
-                self.J.fromarray(self.J.toarray() + dJ)
-                self.J_old = Jtemp
+                if self.sourcetype == "hard":
+                    self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+                elif self.sourcetype == "soft":
+                    Jtemp = self.sigma.toarray() * self.E.toarray()
+                    dJ = (Jtemp - self.J_old)
+                    self.J.fromarray(self.J.toarray() + dJ)
+                    self.J_old = Jtemp
 
             self.E.fromarray(
                 self.E.toarray()
