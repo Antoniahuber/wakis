@@ -144,7 +144,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
         self.activate_cpml = False  # Will turn true if cpml BCs are chosen
-        self.sourcetype = sourcetype  # 'hard' or 'soft' source update
+        self.sourcetype = str(sourcetype).lower()  # 'hard' or 'soft' source update
+        if self.sourcetype not in ("hard", "soft"):
+            raise ValueError(f"Invalid sourcetype={sourcetype!r}; expected 'hard' or 'soft'.")
         self.use_conductivity = False  # Will turn true with conductive material or pml
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
@@ -297,6 +299,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # Fill PML BCs
         if self.activate_cpml:
+            if self.use_mpi:
+                raise NotImplementedError("CPML boundary conditions are not yet supported with MPI.")
             if verbose:
                 print("Filling CPML parameters...")
             self.one_step = self._one_step_cpml

@@ -911,7 +911,7 @@ class GaussianPacket:
             self.sigmaz = c_light / (2 * np.pi * self.sigmaf)
         if self.sigmaf is None and self.sigmaz is not None:
             self.sigmaf = c_light / (2 * np.pi * self.sigmaz)
-        if self.tinj is None:
+        if self.tinj is None and self.sigmaz is not None:
             self.tinj = 6 * self.sigmaz
 
         self.is_first_update = True
@@ -936,6 +936,8 @@ class GaussianPacket:
                 self.sigmaz = 10 * np.mean(
                     solver.dz
                 )  # only feasible for not to ununiform grids
+            if self.tinj is None:
+                self.tinj = 6 * self.sigmaz
             if self.sigmaxy is None:
                 self.sigmaxy = 5 * np.mean([np.mean(solver.dx), np.mean(solver.dy)])
 
@@ -1123,11 +1125,13 @@ class AngledWavePacket:
         self.theta = theta
 
         if self.f is None:
+            if self.wavelength is None:
+                raise ValueError("Either f or wavelength must be provided.")
             self.f = c_light / self.wavelength
         self.w = 2 * np.pi * self.f
         self.k = self.w / (self.beta * c_light)
 
-        if self.tinj is None:
+        if self.tinj is None and self.sigmaz is not None:
             self.tinj = 6 * self.sigmaz
 
         self.is_first_update = True

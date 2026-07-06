@@ -368,7 +368,7 @@ class BCsMixin:
         talpha_x, talpha_y, talpha_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
 
         # Fill
-        if self.bc_low[0].lower() == "pml":
+        if self.bc_low[0].lower() == "cpml":
             interface = self.x[self.n_pml]
             L = interface - self.x[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
@@ -389,7 +389,7 @@ class BCsMixin:
                 tkappa_x[i] = 1 + (self.kappa_max - 1) * tsx[i]
                 talpha_x[i] = self.alpha_max * (1 - tax[i])
 
-        if self.bc_low[1].lower() == "pml":
+        if self.bc_low[1].lower() == "cpml":
             interface = self.y[self.n_pml]
             L = interface - self.y[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
@@ -410,7 +410,7 @@ class BCsMixin:
                 tkappa_y[i] = 1 + (self.kappa_max - 1) * tsy[i]
                 talpha_y[i] = self.alpha_max * (1 - tay[i])
 
-        if self.bc_low[2].lower() == "pml":
+        if self.bc_low[2].lower() == "cpml":
             interface = self.z[self.n_pml]
             L = interface - self.z[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
@@ -431,7 +431,7 @@ class BCsMixin:
                 tkappa_z[i] = 1 + (self.kappa_max - 1) * tsz[i]
                 talpha_z[i] = self.alpha_max * (1 - taz[i])
 
-        if self.bc_high[0].lower() == "pml":
+        if self.bc_high[0].lower() == "cpml":
             interface = self.x[-1-self.n_pml]
             L = self.x[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
@@ -452,7 +452,7 @@ class BCsMixin:
                 tkappa_x[i] = 1 + (self.kappa_max - 1) * tsx[i]
                 talpha_x[i] = self.alpha_max * (1 - tax[i])
 
-        if self.bc_high[1].lower() == "pml":
+        if self.bc_high[1].lower() == "cpml":
             interface = self.y[-1-self.n_pml]
             L = self.y[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
@@ -473,7 +473,7 @@ class BCsMixin:
                 tkappa_y[i] = 1 + (self.kappa_max - 1) * tsy[i]
                 talpha_y[i] = self.alpha_max * (1 - tay[i])
 
-        if self.bc_high[2].lower() == "pml":
+        if self.bc_high[2].lower() == "cpml":
             interface = self.z[-1-self.n_pml]
             L = self.z[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
