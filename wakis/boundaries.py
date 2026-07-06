@@ -360,12 +360,6 @@ class BCsMixin:
         self.talpha = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
         self.sigmaPml = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
         self.tsigmaPml = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
-        sigmaPml_x, sigmaPml_y, sigmaPml_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
-        kappa_x, kappa_y, kappa_z = np.ones(self.Nx), np.ones(self.Ny), np.ones(self.Nz)
-        alpha_x, alpha_y, alpha_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
-        tsigmaPml_x, tsigmaPml_y, tsigmaPml_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
-        tkappa_x, tkappa_y, tkappa_z = np.ones(self.Nx), np.ones(self.Ny), np.ones(self.Nz)
-        talpha_x, talpha_y, talpha_z = np.zeros(self.Nx), np.zeros(self.Ny), np.zeros(self.Nz)
 
         # Fill
         if self.bc_low[0].lower() == "cpml":
@@ -382,12 +376,12 @@ class BCsMixin:
                 tax[i] = (tdist / L)
                 tsx[i] = (tdist / L)**self.pml_exp
                 # Compute the PML parameters for this layer
-                sigmaPml_x[i] = sigma_max * sx[i]
-                kappa_x[i] = 1 + (self.kappa_max - 1) * sx[i]
-                alpha_x[i] = self.alpha_max * (1 - ax[i])
-                tsigmaPml_x[i] = sigma_max * tsx[i]
-                tkappa_x[i] = 1 + (self.kappa_max - 1) * tsx[i]
-                talpha_x[i] = self.alpha_max * (1 - tax[i])
+                self.sigmaPml[i, :, :, 'x'] = sigma_max * sx[i]
+                self.kappa[i, :, :, 'x'] = 1 + (self.kappa_max - 1) * sx[i]
+                self.alpha[i, :, :, 'x'] = self.alpha_max * (1 - ax[i])
+                self.tsigmaPml[i, :, :, 'x'] = sigma_max * tsx[i]
+                self.tkappa[i, :, :, 'x'] = 1 + (self.kappa_max - 1) * tsx[i]
+                self.talpha[i, :, :, 'x'] = self.alpha_max * (1 - tax[i])
 
         if self.bc_low[1].lower() == "cpml":
             interface = self.y[self.n_pml]
@@ -403,12 +397,12 @@ class BCsMixin:
                 ay[i] = (dist / L)
                 tay[i] = (tdist / L)
                 # Compute the PML parameters for this layer
-                sigmaPml_y[i] = sigma_max * sy[i]
-                kappa_y[i] = 1 + (self.kappa_max - 1) * sy[i]
-                alpha_y[i] = self.alpha_max * (1 - ay[i])
-                tsigmaPml_y[i] = sigma_max * tsy[i]
-                tkappa_y[i] = 1 + (self.kappa_max - 1) * tsy[i]
-                talpha_y[i] = self.alpha_max * (1 - tay[i])
+                self.sigmaPml[:, i, :, 'y'] = sigma_max * sy[i]
+                self.kappa[:, i, :, 'y'] = 1 + (self.kappa_max - 1) * sy[i]
+                self.alpha[:, i, :, 'y'] = self.alpha_max * (1 - ay[i])
+                self.tsigmaPml[:, i, :, 'y'] = sigma_max * tsy[i]
+                self.tkappa[:, i, :, 'y'] = 1 + (self.kappa_max - 1) * tsy[i]
+                self.talpha[:, i, :, 'y'] = self.alpha_max * (1 - tay[i])
 
         if self.bc_low[2].lower() == "cpml":
             interface = self.z[self.n_pml]
@@ -424,12 +418,12 @@ class BCsMixin:
                 az[i] = (dist / L)
                 taz[i] = (tdist / L)
                 # Compute the PML parameters for this layer
-                sigmaPml_z[i] = sigma_max * sz[i]
-                kappa_z[i] = 1 + (self.kappa_max - 1) * sz[i]
-                alpha_z[i] = self.alpha_max * (1 - az[i])
-                tsigmaPml_z[i] = sigma_max * tsz[i]
-                tkappa_z[i] = 1 + (self.kappa_max - 1) * tsz[i]
-                talpha_z[i] = self.alpha_max * (1 - taz[i])
+                self.sigmaPml[:, :, i, 'z'] = sigma_max * sz[i]
+                self.kappa[:, :, i, 'z'] = 1 + (self.kappa_max - 1) * sz[i]
+                self.alpha[:, :, i, 'z'] = self.alpha_max * (1 - az[i])
+                self.tsigmaPml[:, :, i, 'z'] = sigma_max * tsz[i]
+                self.tkappa[:, :, i, 'z'] = 1 + (self.kappa_max - 1) * tsz[i]
+                self.talpha[:, :, i, 'z'] = self.alpha_max * (1 - taz[i])
 
         if self.bc_high[0].lower() == "cpml":
             interface = self.x[-1-self.n_pml]
@@ -445,12 +439,12 @@ class BCsMixin:
                 ax[i] = (dist / L)
                 tax[i] = (tdist / L)
                 # Compute the PML parameters for this layer
-                sigmaPml_x[i] = sigma_max * sx[i]
-                kappa_x[i] = 1 + (self.kappa_max - 1) * sx[i]
-                alpha_x[i] = self.alpha_max * (1 - ax[i])
-                tsigmaPml_x[i] = sigma_max * tsx[i]
-                tkappa_x[i] = 1 + (self.kappa_max - 1) * tsx[i]
-                talpha_x[i] = self.alpha_max * (1 - tax[i])
+                self.sigmaPml[i, :, :, 'x'] = sigma_max * sx[i]
+                self.kappa[i, :, :, 'x'] = 1 + (self.kappa_max - 1) * sx[i]
+                self.alpha[i, :, :, 'x'] = self.alpha_max * (1 - ax[i])
+                self.tsigmaPml[i, :, :, 'x'] = sigma_max * tsx[i]
+                self.tkappa[i, :, :, 'x'] = 1 + (self.kappa_max - 1) * tsx[i]
+                self.talpha[i, :, :, 'x'] = self.alpha_max * (1 - tax[i])
 
         if self.bc_high[1].lower() == "cpml":
             interface = self.y[-1-self.n_pml]
@@ -466,12 +460,12 @@ class BCsMixin:
                 ay[i] = (dist / L)
                 tay[i] = (tdist / L)
                 # Compute the PML parameters for this layer
-                sigmaPml_y[i] = sigma_max * sy[i]
-                kappa_y[i] = 1 + (self.kappa_max - 1) * sy[i]
-                alpha_y[i] = self.alpha_max * (1 - ay[i])
-                tsigmaPml_y[i] = sigma_max * tsy[i]
-                tkappa_y[i] = 1 + (self.kappa_max - 1) * tsy[i]
-                talpha_y[i] = self.alpha_max * (1 - tay[i])
+                self.sigmaPml[:, i, :, 'y'] = sigma_max * sy[i]
+                self.kappa[:, i, :, 'y'] = 1 + (self.kappa_max - 1) * sy[i]
+                self.alpha[:, i, :, 'y'] = self.alpha_max * (1 - ay[i])
+                self.tsigmaPml[:, i, :, 'y'] = sigma_max * tsy[i]
+                self.tkappa[:, i, :, 'y'] = 1 + (self.kappa_max - 1) * tsy[i]
+                self.talpha[:, i, :, 'y'] = self.alpha_max * (1 - tay[i])
 
         if self.bc_high[2].lower() == "cpml":
             interface = self.z[-1-self.n_pml]
@@ -487,40 +481,119 @@ class BCsMixin:
                 az[i] = (dist / L)
                 taz[i] = (tdist / L)
                 # Compute the PML parameters for this layer
-                sigmaPml_z[i] = sigma_max * sz[i]
-                kappa_z[i] = 1 + (self.kappa_max - 1) * sz[i]
-                alpha_z[i] = self.alpha_max * (1 - az[i])
-                tsigmaPml_z[i] = sigma_max * tsz[i]
-                tkappa_z[i] = 1 + (self.kappa_max - 1) * tsz[i]
-                talpha_z[i] = self.alpha_max * (1 - taz[i])
+                self.sigmaPml[:, :, i, 'z'] = sigma_max * sz[i]
+                self.kappa[:, :, i, 'z'] = 1 + (self.kappa_max - 1) * sz[i]
+                self.alpha[:, :, i, 'z'] = self.alpha_max * (1 - az[i])
+                self.tsigmaPml[:, :, i, 'z'] = sigma_max * tsz[i]
+                self.tkappa[:, :, i, 'z'] = 1 + (self.kappa_max - 1) * tsz[i]
+                self.talpha[:, :, i, 'z'] = self.alpha_max * (1 - taz[i])
 
-        self.sigmaPml[:, :, :, 'x'] = sigmaPml_x[:, np.newaxis, np.newaxis]
-        self.sigmaPml[:, :, :, 'y'] = sigmaPml_y[np.newaxis, :, np.newaxis]
-        self.sigmaPml[:, :, :, 'z'] = sigmaPml_z[np.newaxis, np.newaxis, :]
-        self.tsigmaPml[:, :, :, 'x'] = tsigmaPml_x[:, np.newaxis, np.newaxis]
-        self.tsigmaPml[:, :, :, 'y'] = tsigmaPml_y[np.newaxis, :, np.newaxis]
-        self.tsigmaPml[:, :, :, 'z'] = tsigmaPml_z[np.newaxis, np.newaxis, :]
-        self.kappa[:, :, :, 'x'] = kappa_x[:, np.newaxis, np.newaxis]
-        self.kappa[:, :, :, 'y'] = kappa_y[np.newaxis, :, np.newaxis]
-        self.kappa[:, :, :, 'z'] = kappa_z[np.newaxis, np.newaxis, :]
-        self.tkappa[:, :, :, 'x'] = tkappa_x[:, np.newaxis, np.newaxis]
-        self.tkappa[:, :, :, 'y'] = tkappa_y[np.newaxis, :, np.newaxis]
-        self.tkappa[:, :, :, 'z'] = tkappa_z[np.newaxis, np.newaxis, :]
-        self.alpha[:, :, :, 'x'] = alpha_x[:, np.newaxis, np.newaxis]
-        self.alpha[:, :, :, 'y'] = alpha_y[np.newaxis, :, np.newaxis]
-        self.alpha[:, :, :, 'z'] = alpha_z[np.newaxis, np.newaxis, :]
-        self.talpha[:, :, :, 'x'] = talpha_x[:, np.newaxis, np.newaxis]
-        self.talpha[:, :, :, 'y'] = talpha_y[np.newaxis, :, np.newaxis]
-        self.talpha[:, :, :, 'z'] = talpha_z[np.newaxis, np.newaxis, :]
+    def _initialize_CPML_matrices(self):
+        N = self.N
+        self.tLx = diags(
+            self.tL.field_x, shape=(N, N), dtype=self.dtype
+        )
+        self.tLy = diags(
+            self.tL.field_y, shape=(N, N), dtype=self.dtype
+        )
+        self.tLz = diags(
+            self.tL.field_z, shape=(N, N), dtype=self.dtype
+        )
+        self.iAx = diags(
+            self.iA.field_x, shape=(N, N), dtype=self.dtype
+        )
+        self.iAy = diags(
+            self.iA.field_y, shape=(N, N), dtype=self.dtype
+        )
+        self.iAz = diags(
+            self.iA.field_z, shape=(N, N), dtype=self.dtype
+        )
+        self.Lx = diags(
+            self.L.field_x, shape=(N, N), dtype=self.dtype
+        )
+        self.Ly = diags(
+            self.L.field_y, shape=(N, N), dtype=self.dtype
+        )
+        self.Lz = diags(
+            self.L.field_z, shape=(N, N), dtype=self.dtype
+        )
+        self.itAx = diags(
+            self.itA.field_x, shape=(N, N), dtype=self.dtype
+        )
+        self.itAy = diags(
+            self.itA.field_y, shape=(N, N), dtype=self.dtype
+        )
+        self.itAz = diags(
+            self.itA.field_z, shape=(N, N), dtype=self.dtype
+        )
+        self.ikapx = diags(
+            1.0 / self.kappa.field_x, shape=(N, N), dtype=self.dtype
+        )
+        self.ikapy = diags(
+            1.0 / self.kappa.field_y, shape=(N, N), dtype=self.dtype
+        )
+        self.ikapz = diags(
+            1.0 / self.kappa.field_z, shape=(N, N), dtype=self.dtype
+        )
+        self.itkapx = diags(
+            1.0 / self.tkappa.field_x, shape=(N, N), dtype=self.dtype
+        )
+        self.itkapy = diags(
+            1.0 / self.tkappa.field_y, shape=(N, N), dtype=self.dtype
+        )
+        self.itkapz = diags(
+            1.0 / self.tkappa.field_z, shape=(N, N), dtype=self.dtype
+        )
+        # Compute combined derivative operators for CPML update equations
+        self.dxy = self.iAx * self.itkapy * self.Py * self.Dbc_z * self.Lz
+        self.dxz = self.iAx * self.itkapz * self.Pz * self.Dbc_y * self.Ly
+        self.dyz = self.iAy * self.itkapz * self.Pz * self.Dbc_x * self.Lx
+        self.dyx = self.iAy * self.itkapx * self.Px * self.Dbc_z * self.Lz
+        self.dzx = self.iAz * self.itkapx * self.Px * self.Dbc_y * self.Ly
+        self.dzy = self.iAz * self.itkapy * self.Py * self.Dbc_x * self.Lx
 
-        del sigmaPml_x, sigmaPml_y, sigmaPml_z
-        del kappa_x, kappa_y, kappa_z
-        del alpha_x, alpha_y, alpha_z
-        del tsigmaPml_x, tsigmaPml_y, tsigmaPml_z
-        del tkappa_x, tkappa_y, tkappa_z
-        del talpha_x, talpha_y, talpha_z
-        del sx, sy, sz, ax, ay, az, tax, tay, taz, tsx, tsy, tsz
-        
+        self.dtxy = self.itAx * self.ikapy * self.Dbc_z.transpose() * -self.Py.transpose() * self.tLz
+        self.dtxz = self.itAx * self.ikapz * self.Dbc_y.transpose() * -self.Pz.transpose() * self.tLy
+        self.dtyz = self.itAy * self.ikapz * self.Dbc_x.transpose() * -self.Pz.transpose() * self.tLx
+        self.dtyx = self.itAy * self.ikapx * self.Dbc_z.transpose() * -self.Px.transpose() * self.tLz
+        self.dtzx = self.itAz * self.ikapx * self.Dbc_y.transpose() * -self.Px.transpose() * self.tLy
+        self.dtzy = self.itAz * self.ikapy * self.Dbc_x.transpose() * -self.Py.transpose() * self.tLx
+
+        del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz, self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz, self.ikapx, self.ikapy, self.ikapz, self.itkapx, self.itkapy, self.itkapz
+
+        self.pml_b_H = (
+        Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        )
+        self.pml_c_H = (
+        Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        )
+        self.pml_b_E = (
+            Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        )
+        self.pml_c_E = (
+            Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)
+        )
+
+        # Convolution Parameter computation, only valid if sigma is zero in physical domain
+        self.pml_b_E.fromarray(np.exp(
+            -(self.sigmaPml.toarray() / (self.kappa.toarray()) + self.alpha.toarray()) * self.dt / eps_0))
+        denom = self.sigmaPml.toarray() + self.kappa.toarray() * self.alpha.toarray()
+        ratio = np.divide(self.sigmaPml.toarray(), denom, out=np.zeros_like(self.sigmaPml.toarray()), where=denom != 0)
+        self.pml_c_E.fromarray(ratio * (self.pml_b_E.toarray() - 1.0))
+
+        self.pml_b_H.fromarray(np.exp(
+            -(self.tsigmaPml.toarray() / (self.tkappa.toarray()) + self.talpha.toarray()) * self.dt / eps_0))
+        denom = self.tsigmaPml.toarray() + self.tkappa.toarray() * self.talpha.toarray()
+        ratio = np.divide(self.tsigmaPml.toarray(), denom, out=np.zeros_like(self.tsigmaPml.toarray()), where=denom != 0)
+        self.pml_c_H.fromarray(ratio * (self.pml_b_H.toarray() - 1.0))
+
+        del self.kappa, self.alpha, self.sigmaPml, self.tkappa, self.talpha, self.tsigmaPml
+
+        self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+        self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+        self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+        self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+
     def get_abc(self):
         """
         Save boundary field snapshots needed by the Absorbing Boundary
