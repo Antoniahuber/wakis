@@ -4,7 +4,8 @@
 # ########################################### #
 
 import numpy as np
-from scipy.constants import mu_0, epsilon_0
+from scipy.constants import mu_0
+from scipy.constants import epsilon_0 as eps_0
 from scipy.constants import c
 from scipy.sparse import diags
 

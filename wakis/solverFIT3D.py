@@ -53,8 +53,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         fmax=1e9,
         dtype=np.float64,
         n_pml=10,
-        kappa_max=7,
-        alpha_max=0.1,
+        kappa_max=5,
+        alpha_max=0.05,
         sigma_factor=1,
         pml_exp=4,
         source_type="hard",
@@ -255,7 +255,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 bg[1] * mu_0,
                 bg[2],
             )
-            self.use_conductivity = True
+            if not bg == [1.0, 1.0, 0.0]:
+                self.use_conductivity = True
         else:
             self.eps_bg, self.mu_bg, self.sigma_bg = (
                 bg[0] * eps_0,
@@ -420,7 +421,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.dtyx = mkl_sparse_mat(self.dtyx)
         self.dtzx = mkl_sparse_mat(self.dtzx)
         self.dtzy = mkl_sparse_mat(self.dtzy)
-        
+
     def _move_CPML_to_gpu(self):
         self.imu.to_gpu()
         self.dxy = gpu_sparse_mat(self.dxy)
