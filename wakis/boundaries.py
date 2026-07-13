@@ -248,7 +248,7 @@ class BCsMixin:
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the yz plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
+                ieps_0_pml = 1/eps_0 #self.ieps[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
                 sigma_0_pml = 0. #self.sigma[self.n_pml + 1, self.Ny // 2, self.Nz // 2, d]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
@@ -264,7 +264,7 @@ class BCsMixin:
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xz plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
+                ieps_0_pml = 1/eps_0 #self.ieps[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
                 sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.n_pml + 1, self.Nz // 2, d]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
@@ -280,7 +280,7 @@ class BCsMixin:
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xy plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
+                ieps_0_pml = 1/eps_0 #self.ieps[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
                 sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.Ny // 2, self.n_pml + 1, d]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
@@ -296,7 +296,7 @@ class BCsMixin:
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the yz plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[-(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d]
+                ieps_0_pml = 1/eps_0 #self.ieps[-(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d]
                 sigma_0_pml = 0. #self.sigma[ -(self.n_pml + 1), self.Ny // 2, self.Nz // 2, d]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
@@ -313,7 +313,7 @@ class BCsMixin:
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xz plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d]
+                ieps_0_pml = 1/eps_0 #self.ieps[self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d]
                 sigma_0_pml = 0. #self.sigma[self.Nx // 2, -(self.n_pml + 1), self.Nz // 2, d]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
@@ -330,7 +330,7 @@ class BCsMixin:
             for d in ["x", "y", "z"]:
                 # Get the properties from the layer before the PML
                 # Take the values at the center of the xy plane
-                ieps_0_pml = 1/epsilon_0 #self.ieps[self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d]
+                ieps_0_pml = 1/eps_0 #self.ieps[self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d]
                 sigma_0_pml = 0. #self.sigma[self.Nx // 2, self.Ny // 2, -(self.n_pml + 1), d]
                 sigma_mult_pml = (
                     1 if sigma_0_pml < 1 else sigma_0_pml
@@ -553,12 +553,12 @@ class BCsMixin:
         self.dzx = self.iAz * self.itkapx * self.Px * self.Dbc_y * self.Ly
         self.dzy = self.iAz * self.itkapy * self.Py * self.Dbc_x * self.Lx
 
-        self.dtxy = self.itAx * self.ikapy * self.Dbc_z.transpose() * -self.Py.transpose() * self.tLz
-        self.dtxz = self.itAx * self.ikapz * self.Dbc_y.transpose() * -self.Pz.transpose() * self.tLy
-        self.dtyz = self.itAy * self.ikapz * self.Dbc_x.transpose() * -self.Pz.transpose() * self.tLx
-        self.dtyx = self.itAy * self.ikapx * self.Dbc_z.transpose() * -self.Px.transpose() * self.tLz
-        self.dtzx = self.itAz * self.ikapx * self.Dbc_y.transpose() * -self.Px.transpose() * self.tLy
-        self.dtzy = self.itAz * self.ikapy * self.Dbc_x.transpose() * -self.Py.transpose() * self.tLx
+        self.dtxy = self.itAx * self.ikapy * self.Dbc_x * -self.Py.transpose() * self.tLz
+        self.dtxz = self.itAx * self.ikapz * self.Dbc_x * -self.Pz.transpose() * self.tLy
+        self.dtyz = self.itAy * self.ikapz * self.Dbc_y * -self.Pz.transpose() * self.tLx
+        self.dtyx = self.itAy * self.ikapx * self.Dbc_y * -self.Px.transpose() * self.tLz
+        self.dtzx = self.itAz * self.ikapx * self.Dbc_z * -self.Px.transpose() * self.tLy
+        self.dtzy = self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
 
         del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz, self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz, self.ikapx, self.ikapy, self.ikapz, self.itkapx, self.itkapy, self.itkapz
 

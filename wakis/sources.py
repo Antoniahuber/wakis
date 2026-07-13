@@ -961,13 +961,13 @@ class GaussianPacket:
         solver.H[self.xs, self.ys, self.zs, "y"] = (
             -self.amplitude * gaussxy * gausst
         )
-        solver.E[self.xs, self.ys, self.zs, "x"] = (
-            self.amplitude
-            * mu_0
-            * c_light
-            * gaussxy
-            * gausst
-        )
+        # solver.E[self.xs, self.ys, self.zs, "x"] = (
+        #     self.amplitude
+        #     * mu_0
+        #     * c_light
+        #     * gaussxy
+        #     * gausst
+        # )
 
     def plot(self, t, zmin=0):
         """
