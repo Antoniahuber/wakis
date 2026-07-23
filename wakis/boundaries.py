@@ -560,7 +560,13 @@ class BCsMixin:
         self.dtzx = self.itAz * self.ikapx * self.Dbc_z * -self.Px.transpose() * self.tLy
         self.dtzy = self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
 
-        # del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz, self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz, self.ikapx, self.ikapy, self.ikapz, self.itkapx, self.itkapy, self.itkapz
+        if self.source_type.lower() == "transmissionline":
+            self.tf_dxz = self.iAx * self.itkapz * self.Ly
+            self.tf_dyz = self.iAy * self.itkapz * self.Lx
+            self.tf_dtxz = self.itAx * self.ikapz * self.tLy
+            self.tf_dtyz = self.itAy * self.ikapz * self.tLx
+
+        del self.iAx, self.iAy, self.iAz, self.itAx, self.itAy, self.itAz, self.Lx, self.Ly, self.Lz, self.tLx, self.tLy, self.tLz, self.ikapx, self.ikapy, self.ikapz, self.itkapx, self.itkapy, self.itkapz
 
         self.pml_b_H = (
         Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype)

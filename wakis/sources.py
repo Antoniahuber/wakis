@@ -148,10 +148,9 @@ class Beam:
                 if s0-s[-solver.n_pml-2] > 5 * self.sigmaz:
                     solver.injection_done = True
                     solver.one_step = solver._one_step_cpml
-                    del solver.iAx, solver.iAy, solver.iAz, solver.itAx, solver.itAy, solver.itAz, solver.Lx, solver.Ly, solver.Lz, solver.tLx, solver.tLy, solver.tLz, solver.ikapx, solver.ikapy, solver.ikapz, solver.itkapx, solver.itkapy, solver.itkapz
-                    del solver.Dbc_x, solver.Dbc_y, solver.Dbc_z, solver.Px, solver.Py, solver.Pz
                     del solver.E_trans, solver.H_trans
                     del self.E2D_x_low, self.E2D_y_low, self.H2D_x_low, self.H2D_y_low, self.E2D_x_high, self.E2D_y_high, self.H2D_x_high, self.H2D_y_high
+                    del solver.tf_dxz, solver.tf_dyz, solver.tf_dtxz, solver.tf_dtyz
                     if solver.verbose> 1:
                         print(f"[!] TransmissionLine injection done at t={t:.3e}s, switching to regular CPML updating scheme")
         
