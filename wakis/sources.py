@@ -147,7 +147,6 @@ class Beam:
 
                 if s0-s[-solver.n_pml-2] > 5 * self.sigmaz:
                     solver.injection_done = True
-                    solver.one_step = solver._one_step_cpml
                     del solver.E_trans, solver.H_trans
                     del self.E2D_x_low, self.E2D_y_low, self.H2D_x_low, self.H2D_y_low, self.E2D_x_high, self.E2D_y_high, self.H2D_x_high, self.H2D_y_high
                     del solver.tf_dxz, solver.tf_dyz, solver.tf_dtxz, solver.tf_dtyz

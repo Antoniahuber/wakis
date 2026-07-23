@@ -374,10 +374,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
 
         if self.source_type.lower() == "transmissionline":
-            self.one_step = self._one_step_cpml_transmission_line
-            if imported_mkl:
-                print("[!] MKL backend not yet supported for TransmissionLine injection.")
-            self.imported_mkl = False  # MKL backend not yet supported for TransmissionLine injection
             if not self.activate_cpml:
                 raise ValueError("TransmissionLine injection requires CPML boundary conditions. Please set `bc_low` and `bc_high` to 'cpml' in the z-direction.")
             self.E_trans = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
@@ -433,6 +429,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.dtyx = mkl_sparse_mat(self.dtyx)
         self.dtzx = mkl_sparse_mat(self.dtzx)
         self.dtzy = mkl_sparse_mat(self.dtzy)
+
+        if self.source_type.lower() == "transmissionline":
+            self.tf_dxz = mkl_sparse_mat(self.tf_dxz)
+            self.tf_dyz = mkl_sparse_mat(self.tf_dyz)
+            self.tf_dtxz = mkl_sparse_mat(self.tf_dtxz)
+            self.tf_dtyz = mkl_sparse_mat(self.tf_dtyz)
 
     def _move_CPML_to_gpu(self):
         self.imu.to_gpu()
@@ -633,6 +635,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dyzEx = self.dyz * self.E.field_x
         dzxEy = self.dzx * self.E.field_y
         dzyEx = self.dzy * self.E.field_x
+
+        if self.source_type.lower() == "transmissionline":
+            if not self.injection_done:
+                dxzEy -= self.tf_dxz * self.E_trans.field_y
+                dyzEx -= self.tf_dyz * self.E_trans.field_x
         
         self.psiHa.field_x = self.pml_b_H.field_y * self.psiHa.field_x + self.pml_c_H.field_y * dxyEz
         self.psiHb.field_x = self.pml_b_H.field_z * self.psiHb.field_x + self.pml_c_H.field_z * dxzEy
@@ -654,6 +661,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dtyzHx = self.dtyz * self.H.field_x
         dtzxHy = self.dtzx * self.H.field_y
         dtzyHx = self.dtzy * self.H.field_x
+
+        if self.source_type.lower() == "transmissionline":
+            if not self.injection_done:
+                dtxzHy += self.tf_dtxz * self.H_trans.field_y
+                dtyzHx += self.tf_dtyz * self.H_trans.field_x
 
         self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
         self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
@@ -680,71 +692,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 dJ = (Jtemp - self.J_old)
                 self.J.fromarray(self.J.toarray() + dJ)
                 self.J_old = Jtemp
-
-    def _one_step_cpml_transmission_line(self):
-    # Including the convolutional terms for the CPML update equations
-        if self.step_0:
-            self._set_ghosts_to_0()
-            self.step_0 = False
-            self._attrcleanup()
-            if self.source_type == "soft":
-                self.J_old = np.zeros_like(self.J.toarray())
-            if self.verbose>1:
-                    print("Starting time-stepping with CPML...")
-
-        dxyEz = self.dxy * self.E.field_z
-        dxzEy = self.dxz * self.E.field_y - self.tf_dxz * self.E_trans.field_y
-        dyxEz = self.dyx * self.E.field_z
-        dyzEx = self.dyz * self.E.field_x - self.tf_dyz * self.E_trans.field_x
-        dzxEy = self.dzx * self.E.field_y
-        dzyEx = self.dzy * self.E.field_x
-
-        self.psiHa.field_x = self.pml_b_H.field_y * self.psiHa.field_x + self.pml_c_H.field_y * dxyEz
-        self.psiHb.field_x = self.pml_b_H.field_z * self.psiHb.field_x + self.pml_c_H.field_z * dxzEy
-        self.psiHb.field_y = self.pml_b_H.field_x * self.psiHb.field_y + self.pml_c_H.field_x * dyxEz
-        self.psiHa.field_y = self.pml_b_H.field_z * self.psiHa.field_y + self.pml_c_H.field_z * dyzEx
-        self.psiHa.field_z = self.pml_b_H.field_x * self.psiHa.field_z + self.pml_c_H.field_x * dzxEy
-        self.psiHb.field_z = self.pml_b_H.field_y * self.psiHb.field_z + self.pml_c_H.field_y * dzyEx
-
-        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * (dxyEz - dxzEy)
-        ) - self.dt * self.imu.field_x * (self.psiHa.field_x - self.psiHb.field_x)
-        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * (dyzEx - dyxEz)
-        ) - self.dt * self.imu.field_y * (self.psiHa.field_y - self.psiHb.field_y)           
-        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * (dzxEy - dzyEx)
-        ) - self.dt * self.imu.field_z * (self.psiHa.field_z - self.psiHb.field_z)
-
-        dtxyHz = self.dtxy * self.H.field_z
-        dtxzHy = self.dtxz * self.H.field_y + self.tf_dtxz * self.H_trans.field_y
-        dtyxHz = self.dtyx * self.H.field_z
-        dtyzHx = self.dtyz * self.H.field_x + self.tf_dtyz * self.H_trans.field_x
-        dtzxHy = self.dtzx * self.H.field_y
-        dtzyHx = self.dtzy * self.H.field_x
-
-        self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
-        self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
-        self.psiEb.field_y = self.pml_b_E.field_x * self.psiEb.field_y + self.pml_c_E.field_x * dtyxHz
-        self.psiEa.field_y = self.pml_b_E.field_z * self.psiEa.field_y + self.pml_c_E.field_z * dtyzHx
-        self.psiEa.field_z = self.pml_b_E.field_x * self.psiEa.field_z + self.pml_c_E.field_x * dtzxHy
-        self.psiEb.field_z = self.pml_b_E.field_y * self.psiEb.field_z + self.pml_c_E.field_y * dtzyHx
-
-        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
-                            - self.dt * self.ieps.field_x * self.J.field_x
-                            + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
-        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
-                            - self.dt * self.ieps.field_y * self.J.field_y
-                            + self.dt * self.ieps.field_y * (self.psiEa.field_y - self.psiEb.field_y))   
-        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
-                            - self.dt * self.ieps.field_z * self.J.field_z
-                            + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))
-
-        if self.use_conductivity:
-            if self.source_type == "hard":
-                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
-            elif self.source_type == "soft" or self.source_type == "transmissionline":
-                Jtemp = self.sigma.toarray() * self.E.toarray()
-                dJ = (Jtemp - self.J_old)
-                self.J.fromarray(self.J.toarray() + dJ)
-                self.J_old = Jtemp
         
     def _one_step_mkl(self):
         if self.step_0:
@@ -762,6 +709,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dyzEx = dot_product_mkl(self.dyz, self.E.field_x)
             dzxEy = dot_product_mkl(self.dzx, self.E.field_y)
             dzyEx = dot_product_mkl(self.dzy, self.E.field_x)
+
+            if self.source_type.lower() == "transmissionline":
+                if not self.injection_done:
+                    dxzEy -= dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
+                    dyzEx -= dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
             
             self.psiHa.field_x = self.pml_b_H.field_y * self.psiHa.field_x + self.pml_c_H.field_y * dxyEz
             self.psiHb.field_x = self.pml_b_H.field_z * self.psiHb.field_x + self.pml_c_H.field_z * dxzEy
@@ -783,6 +735,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dtyzHx = dot_product_mkl(self.dtyz, self.H.field_x)
             dtzxHy = dot_product_mkl(self.dtzx, self.H.field_y)
             dtzyHx = dot_product_mkl(self.dtzy, self.H.field_x)
+
+            if self.source_type.lower() == "transmissionline":
+                if not self.injection_done:
+                    dtxzHy += dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
+                    dtyzHx += dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
 
             self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
             self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
