@@ -100,7 +100,7 @@ class Beam:
             if solver.source_type.lower() == "transmissionline":
                 solver.injection_done = False
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, solver.n_pml+1:-solver.n_pml-2, "z"])
-                solver.J_max = self.q * self.v / solver.dx[self.ixs] / solver.dy[self.iys] / (np.sqrt(2 * np.pi * self.sigmaz**2))
+                solver.J_max = self.q * self.v / solver.tdx[self.ixs] / solver.tdy[self.iys] / (np.sqrt(2 * np.pi * self.sigmaz**2))
                 if solver.verbose>1:
                     print(f"[!] TransmissionLine injection started at t={t:.3e}s, Jmax={solver.J_max:.3e} Cm/s")
                 self._calculate_injected_fields(solver, z_pos=solver.n_pml+1, side="low")
@@ -124,7 +124,7 @@ class Beam:
         )
         # update
         if solver.source_type.lower() == "transmissionline":
-            Jprofile = self.q * self.v * profile[solver.n_pml+1:-solver.n_pml-2] / solver.dx[self.ixs] / solver.dy[self.iys]
+            Jprofile = self.q * self.v * profile[solver.n_pml+1:-solver.n_pml-2] / solver.tdx[self.ixs] / solver.tdy[self.iys]
             dJ = Jprofile - self.Jold
             solver.J[self.ixs, self.iys, solver.n_pml+1:-solver.n_pml-2, "z"] += dJ
             self.Jold = Jprofile
@@ -155,11 +155,11 @@ class Beam:
         
         elif solver.source_type.lower() == "hard":
             solver.J[self.ixs, self.iys, :, "z"] = (
-                self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
+                self.q * self.v * profile / solver.tdx[self.ixs] / solver.tdy[self.iys]
             )
 
         elif solver.source_type.lower() == "soft":
-            Jprofile = self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
+            Jprofile = self.q * self.v * profile / solver.tdx[self.ixs] / solver.tdy[self.iys]
             dJ = Jprofile - self.Jold
             solver.J[self.ixs, self.iys, :, "z"] += dJ
             self.Jold = Jprofile
@@ -193,37 +193,47 @@ class Beam:
                 for j in range(Ny):
                     row_idx = k(i, j)
                     
-                    # PEC Nodes: Enforce Dirichlet condition (phi = 0)
-                    if solver.ieps[i, j, z_pos, 'x'] == 0 or i == 0 or i == Nx-1 or j == 0 or j == Ny-1:
-                        row.append(row_idx)
-                        col.append(row_idx)
-                        data.append(1.0)
+            #         # PEC Nodes: Enforce Dirichlet condition (phi = 0)
+            #         if solver.ieps[i, j, z_pos, 'x'] == 0 or i == 0 or i == Nx-1 or j == 0 or j == Ny-1:
+            #             row.append(row_idx)
+            #             col.append(row_idx)
+            #             data.append(1.0)
+            #             b[row_idx] = 0.0
+            #             continue
+                    
+
+                    # 1. TOPOLOGICAL GROUNDING:
+                    # A node is on or inside the PEC if ANY of its edges have zero permittivity.
+                    is_pec_node = (
+                        i == 0 or i == Nx - 1 or j == 0 or j == Ny - 1 or
+                        solver.ieps[i, j, z_pos, 'x'] == 0 or
+                        solver.ieps[i - 1, j, z_pos, 'x'] == 0 or
+                        solver.ieps[i, j, z_pos, 'y'] == 0 or
+                        solver.ieps[i, j - 1, z_pos, 'y'] == 0
+                    )
+
+                    # Enforce Dirichlet boundary condition (phi = 0) at PEC nodes
+                    if is_pec_node:
+                        row.append(row_idx); col.append(row_idx); data.append(1.0)
                         b[row_idx] = 0.0
                         continue
-                    
-                    # Vacuum Interior Nodes
+
+
+                    # 2. VACUUM INTERIOR:
                     a_E = 1.0 / (solver.dx[i] * solver.tdx[i])
                     a_W = 1.0 / (solver.dx[i-1] * solver.tdx[i])
                     a_N = 1.0 / (solver.dy[j] * solver.tdy[j])
                     a_S = 1.0 / (solver.dy[j-1] * solver.tdy[j])
                     a_C = -(a_E + a_W + a_N + a_S)
-                    
-                    # Center coefficient
+
                     row.append(row_idx); col.append(row_idx); data.append(a_C)
-                    
-                    # East
                     row.append(row_idx); col.append(k(i+1, j)); data.append(a_E)
-                    # West
                     row.append(row_idx); col.append(k(i-1, j)); data.append(a_W)
-                    # North
                     row.append(row_idx); col.append(k(i, j+1)); data.append(a_N)
-                    # South
                     row.append(row_idx); col.append(k(i, j-1)); data.append(a_S)
 
             A = sp.coo_matrix((data, (row, col)), shape=(N, N)).tocsr()
             phi_vec = spsolve(A, b)
-            
-            # Reshape vector back to 2D grid
             phi = phi_vec.reshape((Nx, Ny))
 
             E2D_x = np.zeros((Nx, Ny), dtype=solver.dtype)
@@ -231,11 +241,13 @@ class Beam:
 
             for i in range(Nx - 1):
                 for j in range(Ny):
-                    E2D_x[i, j] = -(phi[i+1, j] - phi[i, j]) / solver.dx[i]
+                    if solver.ieps[i, j, z_pos, 'x'] > 0:
+                        E2D_x[i, j] = -(phi[i+1, j] - phi[i, j]) / solver.dx[i]
 
             for i in range(Nx):
                 for j in range(Ny - 1):
-                    E2D_y[i, j] = -(phi[i, j+1] - phi[i, j]) / solver.dy[j]
+                    if solver.ieps[i, j, z_pos, 'y'] > 0:
+                        E2D_y[i, j] = -(phi[i, j+1] - phi[i, j]) / solver.dy[j]
             
             H2D_x = -E2D_y / Z0
             H2D_y =  E2D_x / Z0
@@ -280,7 +292,7 @@ class Beam:
             / np.sqrt(2 * np.pi * self.sigmaz**2)
             * np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
             )
-            Jz_pos = self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
+            Jz_pos = self.q * self.v * profile / solver.tdx[self.ixs] / solver.tdy[self.iys]
 
             # 3. Scale the 2D templates by the current density at this z-position and time step
 

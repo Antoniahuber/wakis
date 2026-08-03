@@ -378,8 +378,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 raise ValueError("TransmissionLine injection requires CPML boundary conditions. Please set `bc_low` and `bc_high` to 'cpml' in the z-direction.")
             self.E_trans = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
             self.H_trans = Field(self.Nx, self.Ny, self.Nz, dtype=self.dtype, use_gpu=self.use_gpu)
-            self.tdx = self.tL[:, 0, 0, 'x']
-            self.tdy = self.tL[0, :, 0, 'y']
+        self.tdx = self.tL[:, 0, 0, 'x']
+        self.tdy = self.tL[0, :, 0, 'y']
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
@@ -687,7 +687,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.use_conductivity:
             if self.source_type == "hard":
                 self.J.fromarray(self.sigma.toarray() * self.E.toarray())
-            elif self.source_type == "soft":
+            elif self.source_type == "soft" or self.source_type == "transmissionline":
                 Jtemp = self.sigma.toarray() * self.E.toarray()
                 dJ = (Jtemp - self.J_old)
                 self.J.fromarray(self.J.toarray() + dJ)
@@ -761,7 +761,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             if self.use_conductivity:
                 if self.source_type == "hard":
                     self.J.fromarray(self.sigma.toarray() * self.E.toarray())
-                elif self.source_type == "soft":
+                elif self.source_type == "soft" or self.source_type == "transmissionline":
                     Jtemp = self.sigma.toarray() * self.E.toarray()
                     self.dJ = (Jtemp - self.J_old)
                     self.J.fromarray(self.J.toarray() + self.dJ)
