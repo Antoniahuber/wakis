@@ -179,31 +179,19 @@ class Beam:
                 """Maps 2D grid coordinates to 1D flat index."""
                 return i * Ny + j
 
-            # Allocate arrays for the 2D transverse field templates
             Nx, Ny = solver.Nx, solver.Ny
             N = Nx * Ny
 
             b = np.zeros((N), dtype=solver.dtype)
             rho_source = 1.0 / c_light  # Normalized source charge density
-            b[k(self.ixs, self.iys)] = -rho_source/epsilon_0  # Source term at the beam location
+            b[k(self.ixs, self.iys)] = -rho_source/epsilon_0
 
             row, col, data = [], [], []
 
             for i in range(Nx):
                 for j in range(Ny):
                     row_idx = k(i, j)
-                    
-            #         # PEC Nodes: Enforce Dirichlet condition (phi = 0)
-            #         if solver.ieps[i, j, z_pos, 'x'] == 0 or i == 0 or i == Nx-1 or j == 0 or j == Ny-1:
-            #             row.append(row_idx)
-            #             col.append(row_idx)
-            #             data.append(1.0)
-            #             b[row_idx] = 0.0
-            #             continue
-                    
-
-                    # 1. TOPOLOGICAL GROUNDING:
-                    # A node is on or inside the PEC if ANY of its edges have zero permittivity.
+                        
                     is_pec_node = (
                         i == 0 or i == Nx - 1 or j == 0 or j == Ny - 1 or
                         solver.ieps[i, j, z_pos, 'x'] == 0 or
@@ -217,9 +205,7 @@ class Beam:
                         row.append(row_idx); col.append(row_idx); data.append(1.0)
                         b[row_idx] = 0.0
                         continue
-
-
-                    # 2. VACUUM INTERIOR:
+                    
                     a_E = 1.0 / (solver.dx[i] * solver.tdx[i])
                     a_W = 1.0 / (solver.dx[i-1] * solver.tdx[i])
                     a_N = 1.0 / (solver.dy[j] * solver.tdy[j])
@@ -241,13 +227,11 @@ class Beam:
 
             for i in range(Nx - 1):
                 for j in range(Ny):
-                    if solver.ieps[i, j, z_pos, 'x'] > 0:
-                        E2D_x[i, j] = -(phi[i+1, j] - phi[i, j]) / solver.dx[i]
+                    E2D_x[i, j] = -(phi[i+1, j] - phi[i, j]) / solver.dx[i]
 
             for i in range(Nx):
                 for j in range(Ny - 1):
-                    if solver.ieps[i, j, z_pos, 'y'] > 0:
-                        E2D_y[i, j] = -(phi[i, j+1] - phi[i, j]) / solver.dy[j]
+                    E2D_y[i, j] = -(phi[i, j+1] - phi[i, j]) / solver.dy[j]
             
             H2D_x = -E2D_y / Z0
             H2D_y =  E2D_x / Z0
