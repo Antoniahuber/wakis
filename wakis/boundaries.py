@@ -596,10 +596,21 @@ class BCsMixin:
 
         del self.kappa, self.alpha, self.sigmaPml, self.tkappa, self.talpha, self.tsigmaPml
 
-        self.psiHa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
-        self.psiHb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
-        self.psiEa = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
-        self.psiEb = Field(self.Nx, self.Ny, self.Nz, use_gpu=self.use_gpu, dtype=self.dtype)
+        if self.bc_low[0].lower() == "cpml" or self.bc_high[0].lower() == "cpml":
+            self.psiHa_z = np.zeros((self.N), dtype=self.dtype)
+            self.psiHb_y = np.zeros((self.N), dtype=self.dtype)
+            self.psiEa_z = np.zeros((self.N), dtype=self.dtype)
+            self.psiEb_y = np.zeros((self.N), dtype=self.dtype)
+        if self.bc_low[1].lower() == "cpml" or self.bc_high[1].lower() == "cpml":
+            self.psiHa_x = np.zeros((self.N), dtype=self.dtype)
+            self.psiHb_z = np.zeros((self.N), dtype=self.dtype)
+            self.psiEa_x = np.zeros((self.N), dtype=self.dtype)
+            self.psiEb_z = np.zeros((self.N), dtype=self.dtype)
+        if self.bc_low[2].lower() == "cpml" or self.bc_high[2].lower() == "cpml":
+            self.psiHa_y = np.zeros((self.N), dtype=self.dtype)
+            self.psiHb_x = np.zeros((self.N), dtype=self.dtype)
+            self.psiEa_y = np.zeros((self.N), dtype=self.dtype)
+            self.psiEb_x = np.zeros((self.N), dtype=self.dtype)
 
     def get_abc(self):
         """

@@ -714,20 +714,30 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 if not self.injection_done:
                     dxzEy -= dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
                     dyzEx -= dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
-            
-            self.psiHa.field_x = self.pml_b_H.field_y * self.psiHa.field_x + self.pml_c_H.field_y * dxyEz
-            self.psiHb.field_x = self.pml_b_H.field_z * self.psiHb.field_x + self.pml_c_H.field_z * dxzEy
-            self.psiHb.field_y = self.pml_b_H.field_x * self.psiHb.field_y + self.pml_c_H.field_x * dyxEz
-            self.psiHa.field_y = self.pml_b_H.field_z * self.psiHa.field_y + self.pml_c_H.field_z * dyzEx
-            self.psiHa.field_z = self.pml_b_H.field_x * self.psiHa.field_z + self.pml_c_H.field_x * dzxEy
-            self.psiHb.field_z = self.pml_b_H.field_y * self.psiHb.field_z + self.pml_c_H.field_y * dzyEx
 
-            self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * (dxyEz - dxzEy)
-            ) - self.dt * self.imu.field_x * (self.psiHa.field_x - self.psiHb.field_x)
-            self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * (dyzEx - dyxEz)
-            ) - self.dt * self.imu.field_y * (self.psiHa.field_y - self.psiHb.field_y)           
-            self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * (dzxEy - dzyEx)
-            ) - self.dt * self.imu.field_z * (self.psiHa.field_z - self.psiHb.field_z)
+            if self.bc_low[0].lower() == "cpml" or self.bc_high[0].lower() == "cpml":
+                self.psiHa_z = self.pml_b_H.field_x * self.psiHa_z + self.pml_c_H.field_x * dzxEy
+                self.psiHb_y = self.pml_b_H.field_x * self.psiHb_y + self.pml_c_H.field_x * dyxEz
+            if self.bc_low[1].lower() == "cpml" or self.bc_high[1].lower() == "cpml":
+                self.psiHa_x = self.pml_b_H.field_y * self.psiHa_x + self.pml_c_H.field_y * dxyEz
+                self.psiHb_z = self.pml_b_H.field_y * self.psiHb_z + self.pml_c_H.field_y * dzyEx
+            if self.bc_low[2].lower() == "cpml" or self.bc_high[2].lower() == "cpml":
+                self.psiHa_y = self.pml_b_H.field_z * self.psiHa_y + self.pml_c_H.field_z * dyzEx
+                self.psiHb_x = self.pml_b_H.field_z * self.psiHb_x + self.pml_c_H.field_z * dxzEy
+
+            self.H.field_x -= self.dt * self.imu.field_x * (dxyEz - dxzEy)
+            self.H.field_y -= self.dt * self.imu.field_y * (dyzEx - dyxEz)
+            self.H.field_z -= self.dt * self.imu.field_z * (dzxEy - dzyEx)
+
+            if self.bc_low[0].lower() == "cpml" or self.bc_high[0].lower() == "cpml":
+                self.H.field_y -= self.dt * self.imu.field_y * - self.psiHb_y
+                self.H.field_z -= self.dt * self.imu.field_z * self.psiHa_z
+            if self.bc_low[1].lower() == "cpml" or self.bc_high[1].lower() == "cpml":
+                self.H.field_x -= self.dt * self.imu.field_x * self.psiHa_x
+                self.H.field_z -= self.dt * self.imu.field_z * - self.psiHb_z
+            if self.bc_low[2].lower() == "cpml" or self.bc_high[2].lower() == "cpml":
+                self.H.field_x -= self.dt * self.imu.field_x * - self.psiHb_x
+                self.H.field_y -= self.dt * self.imu.field_y * self.psiHa_y
 
             dtxyHz = dot_product_mkl(self.dtxy, self.H.field_z)
             dtxzHy = dot_product_mkl(self.dtxz, self.H.field_y)
@@ -741,23 +751,33 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                     dtxzHy += dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
                     dtyzHx += dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
 
-            self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
-            self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
-            self.psiEb.field_y = self.pml_b_E.field_x * self.psiEb.field_y + self.pml_c_E.field_x * dtyxHz
-            self.psiEa.field_y = self.pml_b_E.field_z * self.psiEa.field_y + self.pml_c_E.field_z * dtyzHx
-            self.psiEa.field_z = self.pml_b_E.field_x * self.psiEa.field_z + self.pml_c_E.field_x * dtzxHy
-            self.psiEb.field_z = self.pml_b_E.field_y * self.psiEb.field_z + self.pml_c_E.field_y * dtzyHx
+            if self.bc_low[0].lower() == "cpml" or self.bc_high[0].lower() == "cpml":
+                self.psiEa_z = self.pml_b_E.field_x * self.psiEa_z + self.pml_c_E.field_x * dtzxHy
+                self.psiEb_y = self.pml_b_E.field_x * self.psiEb_y + self.pml_c_E.field_x * dtyxHz
+            if self.bc_low[1].lower() == "cpml" or self.bc_high[1].lower() == "cpml":
+                self.psiEa_x = self.pml_b_E.field_y * self.psiEa_x + self.pml_c_E.field_y * dtxyHz
+                self.psiEb_z = self.pml_b_E.field_y * self.psiEb_z + self.pml_c_E.field_y * dtzyHx
+            if self.bc_low[2].lower() == "cpml" or self.bc_high[2].lower() == "cpml":                
+                self.psiEa_y = self.pml_b_E.field_z * self.psiEa_y + self.pml_c_E.field_z * dtyzHx
+                self.psiEb_x = self.pml_b_E.field_z * self.psiEb_x + self.pml_c_E.field_z * dtxzHy
 
-            self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
-                                - self.dt * self.ieps.field_x * self.J.field_x
-                                + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
-            self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
-                                - self.dt * self.ieps.field_y * self.J.field_y
-                                + self.dt * self.ieps.field_y * (self.psiEa.field_y - self.psiEb.field_y))            
-            self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
-                                - self.dt * self.ieps.field_z * self.J.field_z
-                                + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z)) 
-            
+            self.E.field_x += (self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
+                                - self.dt * self.ieps.field_x * self.J.field_x)
+            self.E.field_y += (self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
+                                - self.dt * self.ieps.field_y * self.J.field_y)
+            self.E.field_z += (self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
+                                - self.dt * self.ieps.field_z * self.J.field_z)
+
+            if self.bc_low[0].lower() == "cpml" or self.bc_high[0].lower() == "cpml":
+                self.E.field_y += self.dt * self.ieps.field_y * - self.psiEb_y
+                self.E.field_z += self.dt * self.ieps.field_z * self.psiEa_z
+            if self.bc_low[1].lower() == "cpml" or self.bc_high[1].lower() == "cpml":
+                self.E.field_x += self.dt * self.ieps.field_x * self.psiEa_x
+                self.E.field_z += self.dt * self.ieps.field_z * - self.psiEb_z
+            if self.bc_low[2].lower() == "cpml" or self.bc_high[2].lower() == "cpml":
+                self.E.field_x += self.dt * self.ieps.field_x * - self.psiEb_x
+                self.E.field_y += self.dt * self.ieps.field_y * self.psiEa_y
+
             if self.use_conductivity:
                 if self.source_type == "hard":
                     self.J.fromarray(self.sigma.toarray() * self.E.toarray())
