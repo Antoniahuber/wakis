@@ -723,23 +723,23 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.H.field_z -= self.dt * self.imu.field_z * (dzxEy - dzyEx)
 
         if self.bc_low[0].lower() == "cpml":
-            self.H[:self.n_pml, :, :, 'y'] -= (self.dt * self.imu.field_y[self.idx_x_low] * - self.psiHb_y_low).reshape((self.n_pml, self.Ny, self.Nz), order='F')
-            self.H[:self.n_pml, :, :, 'z'] -= (self.dt * self.imu.field_z[self.idx_x_low] * self.psiHa_z_low).reshape((self.n_pml, self.Ny, self.Nz), order='F')
+            self.H.field_y[self.idx_x_low] -= self.dt * self.imu.field_y[self.idx_x_low] * - self.psiHb_y_low
+            self.H.field_z[self.idx_x_low] -= self.dt * self.imu.field_z[self.idx_x_low] * self.psiHa_z_low
         if self.bc_low[1].lower() == "cpml":
-            self.H[:, :self.n_pml, :, 'x'] -= (self.dt * self.imu.field_x[self.idx_y_low] * self.psiHa_x_low).reshape((self.Nx, self.n_pml, self.Nz), order='F')
-            self.H[:, :self.n_pml, :, 'z'] -= (self.dt * self.imu.field_z[self.idx_y_low] * - self.psiHb_z_low).reshape((self.Nx, self.n_pml, self.Nz), order='F')
+            self.H.field_x[self.idx_y_low] -= self.dt * self.imu.field_x[self.idx_y_low] * self.psiHa_x_low
+            self.H.field_z[self.idx_y_low] -= self.dt * self.imu.field_z[self.idx_y_low] * - self.psiHb_z_low
         if self.bc_low[2].lower() == "cpml":
-            self.H[:, :, :self.n_pml, 'x'] -= (self.dt * self.imu.field_x[self.idx_z_low] * - self.psiHb_x_low).reshape((self.Nx, self.Ny, self.n_pml), order='F')
-            self.H[:, :, :self.n_pml, 'y'] -= (self.dt * self.imu.field_y[self.idx_z_low] * self.psiHa_y_low).reshape((self.Nx, self.Ny, self.n_pml), order='F')
+            self.H.field_x[self.idx_z_low] -= self.dt * self.imu.field_x[self.idx_z_low] * - self.psiHb_x_low
+            self.H.field_y[self.idx_z_low] -= self.dt * self.imu.field_y[self.idx_z_low] * self.psiHa_y_low
         if self.bc_high[0].lower() == "cpml":
-            self.H[-self.n_pml:, :, :, 'y'] -= (self.dt * self.imu.field_y[self.idx_x_high] * - self.psiHb_y_high).reshape((self.n_pml, self.Ny, self.Nz), order='F')
-            self.H[-self.n_pml:, :, :, 'z'] -= (self.dt * self.imu.field_z[self.idx_x_high] * self.psiHa_z_high).reshape((self.n_pml, self.Ny, self.Nz), order='F')
+            self.H.field_y[self.idx_x_high] -= self.dt * self.imu.field_y[self.idx_x_high] * - self.psiHb_y_high
+            self.H.field_z[self.idx_x_high] -= self.dt * self.imu.field_z[self.idx_x_high] * self.psiHa_z_high
         if self.bc_high[1].lower() == "cpml":
-            self.H[:, -self.n_pml:, :, 'x'] -= (self.dt * self.imu.field_x[self.idx_y_high] * self.psiHa_x_high).reshape((self.Nx, self.n_pml, self.Nz), order='F')
-            self.H[:, -self.n_pml:, :, 'z'] -= (self.dt * self.imu.field_z[self.idx_y_high] * - self.psiHb_z_high).reshape((self.Nx, self.n_pml, self.Nz), order='F')
+            self.H.field_x[self.idx_y_high] -= self.dt * self.imu.field_x[self.idx_y_high] * self.psiHa_x_high
+            self.H.field_z[self.idx_y_high] -= self.dt * self.imu.field_z[self.idx_y_high] * - self.psiHb_z_high
         if self.bc_high[2].lower() == "cpml":
-            self.H[:, :, -self.n_pml:, 'x'] -= (self.dt * self.imu.field_x[self.idx_z_high] * - self.psiHb_x_high).reshape((self.Nx, self.Ny, self.n_pml), order='F')
-            self.H[:, :, -self.n_pml:, 'y'] -= (self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high).reshape((self.Nx, self.Ny, self.n_pml), order='F')
+            self.H.field_x[self.idx_z_high] -= self.dt * self.imu.field_x[self.idx_z_high] * - self.psiHb_x_high
+            self.H.field_y[self.idx_z_high] -= self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high
 
         dtxyHz = self.dtxy * self.H.field_z
         dtxzHy = self.dtxz * self.H.field_y
@@ -780,23 +780,23 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                             - self.dt * self.ieps.field_z * self.J.field_z)
 
         if self.bc_low[0].lower() == "cpml":
-            self.E[:self.n_pml, :, :, 'y'] += (self.dt * self.ieps.field_y[self.idx_x_low] * - self.psiEb_y_low).reshape((self.n_pml, self.Ny, self.Nz), order='F')
-            self.E[:self.n_pml, :, :, 'z'] += (self.dt * self.ieps.field_z[self.idx_x_low] * self.psiEa_z_low).reshape((self.n_pml, self.Ny, self.Nz), order='F')
+            self.E.field_y[self.idx_x_low] += self.dt * self.ieps.field_y[self.idx_x_low] * - self.psiEb_y_low
+            self.E.field_z[self.idx_x_low] += self.dt * self.ieps.field_z[self.idx_x_low] * self.psiEa_z_low
         if self.bc_low[1].lower() == "cpml":
-            self.E[:, :self.n_pml, :, 'x'] += (self.dt * self.ieps.field_x[self.idx_y_low] * self.psiEa_x_low).reshape((self.Nx, self.n_pml, self.Nz), order='F')
-            self.E[:, :self.n_pml, :, 'z'] += (self.dt * self.ieps.field_z[self.idx_y_low] * - self.psiEb_z_low).reshape((self.Nx, self.n_pml, self.Nz), order='F')
+            self.E.field_x[self.idx_y_low] += self.dt * self.ieps.field_x[self.idx_y_low] * self.psiEa_x_low
+            self.E.field_z[self.idx_y_low] += self.dt * self.ieps.field_z[self.idx_y_low] * - self.psiEb_z_low
         if self.bc_low[2].lower() == "cpml":
-            self.E[:, :, :self.n_pml, 'x'] += (self.dt * self.ieps.field_x[self.idx_z_low] * - self.psiEb_x_low).reshape((self.Nx, self.Ny, self.n_pml), order='F')
-            self.E[:, :, :self.n_pml, 'y'] += (self.dt * self.ieps.field_y[self.idx_z_low] * self.psiEa_y_low).reshape((self.Nx, self.Ny, self.n_pml), order='F')
+            self.E.field_x[self.idx_z_low] += self.dt * self.ieps.field_x[self.idx_z_low] * - self.psiEb_x_low
+            self.E.field_y[self.idx_z_low] += self.dt * self.ieps.field_y[self.idx_z_low] * self.psiEa_y_low
         if self.bc_high[0].lower() == "cpml":
-            self.E[-self.n_pml:, :, :, 'y'] += (self.dt * self.ieps.field_y[self.idx_x_high] * - self.psiEb_y_high).reshape((self.n_pml, self.Ny, self.Nz), order='F')
-            self.E[-self.n_pml:, :, :, 'z'] += (self.dt * self.ieps.field_z[self.idx_x_high] * self.psiEa_z_high).reshape((self.n_pml, self.Ny,	self.Nz), order='F')
+            self.E.field_y[self.idx_x_high] += self.dt * self.ieps.field_y[self.idx_x_high] * - self.psiEb_y_high
+            self.E.field_z[self.idx_x_high] += self.dt * self.ieps.field_z[self.idx_x_high] * self.psiEa_z_high
         if self.bc_high[1].lower() == "cpml":
-            self.E[:, -self.n_pml:, :, 'x'] += (self.dt * self.ieps.field_x[self.idx_y_high] * self.psiEa_x_high).reshape((self.Nx, self.n_pml, self.Nz), order='F')
-            self.E[:, -self.n_pml:, :, 'z'] += (self.dt * self.ieps.field_z[self.idx_y_high] * - self.psiEb_z_high).reshape((self.Nx, self.n_pml, self.Nz), order='F')
+            self.E.field_x[self.idx_y_high] += self.dt * self.ieps.field_x[self.idx_y_high] * self.psiEa_x_high
+            self.E.field_z[self.idx_y_high] += self.dt * self.ieps.field_z[self.idx_y_high] * - self.psiEb_z_high
         if self.bc_high[2].lower() == "cpml":
-            self.E[:, :, -self.n_pml:, 'x'] += (self.dt * self.ieps.field_x[self.idx_z_high] * - self.psiEb_x_high).reshape((self.Nx, self.Ny, self.n_pml), order='F')
-            self.E[:, :, -self.n_pml:, 'y'] += (self.dt * self.ieps.field_y[self.idx_z_high] * self.psiEa_y_high).reshape((self.Nx, self.Ny, self.n_pml), order='F')
+            self.E.field_x[self.idx_z_high] += self.dt * self.ieps.field_x[self.idx_z_high] * - self.psiEb_x_high
+            self.E.field_y[self.idx_z_high] += self.dt * self.ieps.field_y[self.idx_z_high] * self.psiEa_y_high
 
         if self.use_conductivity:
             if self.source_type == "hard":
@@ -853,23 +853,23 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.H.field_z -= self.dt * self.imu.field_z * (dzxEy - dzyEx)
 
             if self.bc_low[0].lower() == "cpml":
-                self.H[:self.n_pml, :, :, 'y'] -= (self.dt * self.imu.field_y[self.idx_x_low] * - self.psiHb_y_low).reshape((self.n_pml, self.Ny, self.Nz), order='F')
-                self.H[:self.n_pml, :, :, 'z'] -= (self.dt * self.imu.field_z[self.idx_x_low] * self.psiHa_z_low).reshape((self.n_pml, self.Ny, self.Nz), order='F')
+                self.H.field_y[self.idx_x_low] -= self.dt * self.imu.field_y[self.idx_x_low] * - self.psiHb_y_low
+                self.H.field_z[self.idx_x_low] -= self.dt * self.imu.field_z[self.idx_x_low] * self.psiHa_z_low
             if self.bc_low[1].lower() == "cpml":
-                self.H[:, :self.n_pml, :, 'x'] -= (self.dt * self.imu.field_x[self.idx_y_low] * self.psiHa_x_low).reshape((self.Nx, self.n_pml, self.Nz), order='F')
-                self.H[:, :self.n_pml, :, 'z'] -= (self.dt * self.imu.field_z[self.idx_y_low] * - self.psiHb_z_low).reshape((self.Nx, self.n_pml, self.Nz), order='F')
+                self.H.field_x[self.idx_y_low] -= self.dt * self.imu.field_x[self.idx_y_low] * self.psiHa_x_low
+                self.H.field_z[self.idx_y_low] -= self.dt * self.imu.field_z[self.idx_y_low] * - self.psiHb_z_low
             if self.bc_low[2].lower() == "cpml":
-                self.H[:, :, :self.n_pml, 'x'] -= (self.dt * self.imu.field_x[self.idx_z_low] * - self.psiHb_x_low).reshape((self.Nx, self.Ny, self.n_pml), order='F')
-                self.H[:, :, :self.n_pml, 'y'] -= (self.dt * self.imu.field_y[self.idx_z_low] * self.psiHa_y_low).reshape((self.Nx, self.Ny, self.n_pml), order='F')
+                self.H.field_x[self.idx_z_low] -= self.dt * self.imu.field_x[self.idx_z_low] * - self.psiHb_x_low
+                self.H.field_y[self.idx_z_low] -= self.dt * self.imu.field_y[self.idx_z_low] * self.psiHa_y_low
             if self.bc_high[0].lower() == "cpml":
-                self.H[-self.n_pml:, :, :, 'y'] -= (self.dt * self.imu.field_y[self.idx_x_high] * - self.psiHb_y_high).reshape((self.n_pml, self.Ny, self.Nz), order='F')
-                self.H[-self.n_pml:, :, :, 'z'] -= (self.dt * self.imu.field_z[self.idx_x_high] * self.psiHa_z_high).reshape((self.n_pml, self.Ny, self.Nz), order='F')
+                self.H.field_y[self.idx_x_high] -= self.dt * self.imu.field_y[self.idx_x_high] * - self.psiHb_y_high
+                self.H.field_z[self.idx_x_high] -= self.dt * self.imu.field_z[self.idx_x_high] * self.psiHa_z_high
             if self.bc_high[1].lower() == "cpml":
-                self.H[:, -self.n_pml:, :, 'x'] -= (self.dt * self.imu.field_x[self.idx_y_high] * self.psiHa_x_high).reshape((self.Nx, self.n_pml, self.Nz), order='F')
-                self.H[:, -self.n_pml:, :, 'z'] -= (self.dt * self.imu.field_z[self.idx_y_high] * - self.psiHb_z_high).reshape((self.Nx, self.n_pml, self.Nz), order='F')
+                self.H.field_x[self.idx_y_high] -= self.dt * self.imu.field_x[self.idx_y_high] * self.psiHa_x_high
+                self.H.field_z[self.idx_y_high] -= self.dt * self.imu.field_z[self.idx_y_high] * - self.psiHb_z_high
             if self.bc_high[2].lower() == "cpml":
-                self.H[:, :, -self.n_pml:, 'x'] -= (self.dt * self.imu.field_x[self.idx_z_high] * - self.psiHb_x_high).reshape((self.Nx, self.Ny, self.n_pml), order='F')
-                self.H[:, :, -self.n_pml:, 'y'] -= (self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high).reshape((self.Nx, self.Ny, self.n_pml), order='F')
+                self.H.field_x[self.idx_z_high] -= self.dt * self.imu.field_x[self.idx_z_high] * - self.psiHb_x_high
+                self.H.field_y[self.idx_z_high] -= self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high
 
             dtxyHz = dot_product_mkl(self.dtxy, self.H.field_z)
             dtxzHy = dot_product_mkl(self.dtxz, self.H.field_y)
@@ -910,23 +910,23 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                                 - self.dt * self.ieps.field_z * self.J.field_z)
 
             if self.bc_low[0].lower() == "cpml":
-                self.E[:self.n_pml, :, :, 'y'] += (self.dt * self.ieps.field_y[self.idx_x_low] * - self.psiEb_y_low).reshape((self.n_pml, self.Ny, self.Nz), order='F')
-                self.E[:self.n_pml, :, :, 'z'] += (self.dt * self.ieps.field_z[self.idx_x_low] * self.psiEa_z_low).reshape((self.n_pml, self.Ny, self.Nz), order='F')
+                self.E.field_y[self.idx_x_low] += self.dt * self.ieps.field_y[self.idx_x_low] * - self.psiEb_y_low
+                self.E.field_z[self.idx_x_low] += self.dt * self.ieps.field_z[self.idx_x_low] * self.psiEa_z_low
             if self.bc_low[1].lower() == "cpml":
-                self.E[:, :self.n_pml, :, 'x'] += (self.dt * self.ieps.field_x[self.idx_y_low] * self.psiEa_x_low).reshape((self.Nx, self.n_pml, self.Nz), order='F')
-                self.E[:, :self.n_pml, :, 'z'] += (self.dt * self.ieps.field_z[self.idx_y_low] * - self.psiEb_z_low).reshape((self.Nx, self.n_pml, self.Nz), order='F')
+                self.E.field_x[self.idx_y_low] += self.dt * self.ieps.field_x[self.idx_y_low] * self.psiEa_x_low
+                self.E.field_z[self.idx_y_low] += self.dt * self.ieps.field_z[self.idx_y_low] * - self.psiEb_z_low
             if self.bc_low[2].lower() == "cpml":
-                self.E[:, :, :self.n_pml, 'x'] += (self.dt * self.ieps.field_x[self.idx_z_low] * - self.psiEb_x_low).reshape((self.Nx, self.Ny, self.n_pml), order='F')
-                self.E[:, :, :self.n_pml, 'y'] += (self.dt * self.ieps.field_y[self.idx_z_low] * self.psiEa_y_low).reshape((self.Nx, self.Ny, self.n_pml), order='F')
+                self.E.field_x[self.idx_z_low] += self.dt * self.ieps.field_x[self.idx_z_low] * - self.psiEb_x_low
+                self.E.field_y[self.idx_z_low] += self.dt * self.ieps.field_y[self.idx_z_low] * self.psiEa_y_low
             if self.bc_high[0].lower() == "cpml":
-                self.E[-self.n_pml:, :, :, 'y'] += (self.dt * self.ieps.field_y[self.idx_x_high] * - self.psiEb_y_high).reshape((self.n_pml, self.Ny, self.Nz), order='F')
-                self.E[-self.n_pml:, :, :, 'z'] += (self.dt * self.ieps.field_z[self.idx_x_high] * self.psiEa_z_high).reshape((self.n_pml, self.Ny,	self.Nz), order='F')
+                self.E.field_y[self.idx_x_high] += self.dt * self.ieps.field_y[self.idx_x_high] * - self.psiEb_y_high
+                self.E.field_z[self.idx_x_high] += self.dt * self.ieps.field_z[self.idx_x_high] * self.psiEa_z_high
             if self.bc_high[1].lower() == "cpml":
-                self.E[:, -self.n_pml:, :, 'x'] += (self.dt * self.ieps.field_x[self.idx_y_high] * self.psiEa_x_high).reshape((self.Nx, self.n_pml, self.Nz), order='F')
-                self.E[:, -self.n_pml:, :, 'z'] += (self.dt * self.ieps.field_z[self.idx_y_high] * - self.psiEb_z_high).reshape((self.Nx, self.n_pml, self.Nz), order='F')
+                self.E.field_x[self.idx_y_high] += self.dt * self.ieps.field_x[self.idx_y_high] * self.psiEa_x_high
+                self.E.field_z[self.idx_y_high] += self.dt * self.ieps.field_z[self.idx_y_high] * - self.psiEb_z_high
             if self.bc_high[2].lower() == "cpml":
-                self.E[:, :, -self.n_pml:, 'x'] += (self.dt * self.ieps.field_x[self.idx_z_high] * - self.psiEb_x_high).reshape((self.Nx, self.Ny, self.n_pml), order='F')
-                self.E[:, :, -self.n_pml:, 'y'] += (self.dt * self.ieps.field_y[self.idx_z_high] * self.psiEa_y_high).reshape((self.Nx, self.Ny, self.n_pml), order='F')
+                self.E.field_x[self.idx_z_high] += self.dt * self.ieps.field_x[self.idx_z_high] * - self.psiEb_x_high
+                self.E.field_y[self.idx_z_high] += self.dt * self.ieps.field_y[self.idx_z_high] * self.psiEa_y_high
 
             if self.use_conductivity:
                 if self.source_type == "hard":
