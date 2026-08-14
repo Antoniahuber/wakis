@@ -596,6 +596,17 @@ class BCsMixin:
 
         del self.kappa, self.alpha, self.sigmaPml, self.tkappa, self.talpha, self.tsigmaPml
 
+        def _get_f_order_indices(x_range, y_range, z_range, Nx, Ny, Nz):
+            """Helper to generate 1D F-order indices for given 3D slice ranges."""
+            # indexing='ij' ensures the grid maps strictly to (x, y, z) axes
+            X, Y, Z = np.meshgrid(x_range, y_range, z_range, indexing='ij')
+            
+            # Apply the Fortran-order memory stride formula
+            indices_3d = X + (Y * Nx) + (Z * Nx * Ny)
+            
+            # Flatten the result in Fortran order to match your required output
+            return indices_3d.ravel(order='F')
+
         if self.bc_low[0].lower() == "cpml":
             self.psiHa_z_low = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
             self.psiHb_y_low = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
@@ -605,6 +616,7 @@ class BCsMixin:
             self.pml_b_H_x_low = (self.pml_b_H[:self.n_pml, :, :, 'x'].copy()).flatten(order='F')
             self.pml_c_E_x_low = (self.pml_c_E[:self.n_pml, :, :, 'x'].copy()).flatten(order='F')
             self.pml_c_H_x_low = (self.pml_c_H[:self.n_pml, :, :, 'x'].copy()).flatten(order='F')
+            self.idx_x_low = _get_f_order_indices(np.arange(self.n_pml), np.arange(self.Ny), np.arange(self.Nz), self.Nx, self.Ny, self.Nz)
         if self.bc_low[1].lower() == "cpml":
             self.psiHa_x_low = np.zeros((self.Nx *self.n_pml * self.Nz), dtype=self.dtype)
             self.psiHb_z_low = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
@@ -614,6 +626,7 @@ class BCsMixin:
             self.pml_c_H_y_low = (self.pml_c_H[:, :self.n_pml, :, 'y'].copy()).flatten(order='F')
             self.pml_b_E_y_low = (self.pml_b_E[:, :self.n_pml, :, 'y'].copy()).flatten(order='F')
             self.pml_b_H_y_low = (self.pml_b_H[:, :self.n_pml, :, 'y'].copy()).flatten(order='F')
+            self.idx_y_low = _get_f_order_indices(np.arange(self.Nx), np.arange(self.n_pml), np.arange(self.Nz), self.Nx, self.Ny, self.Nz)
         if self.bc_low[2].lower() == "cpml":
             self.psiHa_y_low = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
             self.psiHb_x_low = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
@@ -623,6 +636,7 @@ class BCsMixin:
             self.pml_c_H_z_low = (self.pml_c_H[:, :, :self.n_pml, 'z'].copy()).flatten(order='F')
             self.pml_b_E_z_low = (self.pml_b_E[:, :, :self.n_pml, 'z'].copy()).flatten(order='F')
             self.pml_b_H_z_low = (self.pml_b_H[:, :, :self.n_pml, 'z'].copy()).flatten(order='F')
+            self.idx_z_low = _get_f_order_indices(np.arange(self.Nx), np.arange(self.Ny), np.arange(self.n_pml), self.Nx, self.Ny, self.Nz)
         if self.bc_high[0].lower() == "cpml":
             self.psiHa_z_high = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
             self.psiHb_y_high = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
@@ -632,6 +646,7 @@ class BCsMixin:
             self.pml_c_H_x_high = (self.pml_c_H[-self.n_pml:, :, :, 'x'].copy()).flatten(order='F')
             self.pml_b_E_x_high = (self.pml_b_E[-self.n_pml:, :, :, 'x'].copy()).flatten(order='F')
             self.pml_b_H_x_high = (self.pml_b_H[-self.n_pml:, :, :, 'x'].copy()).flatten(order='F')
+            self.idx_x_high = _get_f_order_indices(np.arange(self.Nx - self.n_pml, self.Nx), np.arange(self.Ny), np.arange(self.Nz), self.Nx, self.Ny, self.Nz)
         if self.bc_high[1].lower() == "cpml":
             self.psiHa_x_high = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
             self.psiHb_z_high = np.zeros((self.Nx * self.n_pml * self.Nz), dtype=self.dtype)
@@ -641,6 +656,7 @@ class BCsMixin:
             self.pml_c_H_y_high = (self.pml_c_H[:, -self.n_pml:, :, 'y'].copy()).flatten(order='F')
             self.pml_b_E_y_high = (self.pml_b_E[:, -self.n_pml:, :, 'y'].copy()).flatten(order='F')
             self.pml_b_H_y_high = (self.pml_b_H[:, -self.n_pml:, :, 'y'].copy()).flatten(order='F')
+            self.idx_y_high = _get_f_order_indices(np.arange(self.Nx), np.arange(self.Ny - self.n_pml, self.Ny), np.arange(self.Nz), self.Nx, self.Ny, self.Nz)
         if self.bc_high[2].lower() == "cpml":
             self.psiHa_y_high = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
             self.psiHb_x_high = np.zeros((self.Nx * self.Ny * self.n_pml), dtype=self.dtype)
@@ -650,6 +666,7 @@ class BCsMixin:
             self.pml_c_H_z_high = (self.pml_c_H[:, :, -self.n_pml:, 'z'].copy()).flatten(order='F')
             self.pml_b_E_z_high = (self.pml_b_E[:, :, -self.n_pml:, 'z'].copy()).flatten(order='F')
             self.pml_b_H_z_high = (self.pml_b_H[:, :, -self.n_pml:, 'z'].copy()).flatten(order='F')
+            self.idx_z_high = _get_f_order_indices(np.arange(self.Nx), np.arange(self.Ny), np.arange(self.Nz - self.n_pml, self.Nz), self.Nx, self.Ny, self.Nz)
 
         del self.pml_b_E, self.pml_c_E, self.pml_b_H, self.pml_c_H
 
