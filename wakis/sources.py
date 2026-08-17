@@ -131,6 +131,7 @@ class Beam:
             
             if solver.injection_done == False:
 
+                # Update the transverse E and H fields on the injection planes using the pre-calculated 2D templates
                 Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.z[solver.n_pml+1], t, side="low")
                 solver.E_trans[:,:, solver.n_pml+1, "x"] = Einj_x
                 solver.E_trans[:,:, solver.n_pml+1, "y"] = Einj_y
@@ -145,6 +146,7 @@ class Beam:
                 solver.H_trans[:,:, -solver.n_pml-2, "x"] = Hinj_x
                 solver.H_trans[:,:, -solver.n_pml-2, "y"] = Hinj_y
 
+                # Truncate the injection after the beam has passed the injection plane by 5 sigma
                 if s0-s[-solver.n_pml-2] > 5 * self.sigmaz:
                     solver.injection_done = True
                     del solver.E_trans, solver.H_trans
@@ -266,11 +268,11 @@ class Beam:
             E_inj_x, E_inj_y, H_inj_x, H_inj_y : 2D numpy arrays of shape (Nx, Ny)
             """
 
-            # 1. Calculate the relative position in the bunch frame
+            # Calculate the relative position in the bunch frame
             s0 = self.zmin - self.v * self.ti
             s = z_pos - self.v * t
 
-            # 2. Evaluate the Gaussian profile at this z-position
+            # Evaluate the Gaussian profile at this z-position
             profile = (
             1
             / np.sqrt(2 * np.pi * self.sigmaz**2)
@@ -278,8 +280,7 @@ class Beam:
             )
             Jz_pos = self.q * self.v * profile / solver.tdx[self.ixs] / solver.tdy[self.iys]
 
-            # 3. Scale the 2D templates by the current density at this z-position and time step
-
+            # Scale the 2D templates by the current density at this z-position and time step
             if side == "low":
                 E_inj_x = self.E2D_x_low * Jz_pos
                 E_inj_y = self.E2D_y_low * Jz_pos

@@ -598,15 +598,12 @@ class BCsMixin:
 
         def _get_f_order_indices(x_range, y_range, z_range, Nx, Ny, Nz):
             """Helper to generate 1D F-order indices for given 3D slice ranges."""
-            # indexing='ij' ensures the grid maps strictly to (x, y, z) axes
             X, Y, Z = np.meshgrid(x_range, y_range, z_range, indexing='ij')
-            
             # Apply the Fortran-order memory stride formula
             indices_3d = X + (Y * Nx) + (Z * Nx * Ny)
-            
-            # Flatten the result in Fortran order to match your required output
             return indices_3d.ravel(order='F')
-
+        
+        # Initialize CPML auxiliary fields and flattened PML parameters for low and high boundaries
         if self.bc_low[0].lower() == "cpml":
             self.psiHa_z_low = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)
             self.psiHb_y_low = np.zeros((self.n_pml * self.Ny * self.Nz), dtype=self.dtype)

@@ -452,6 +452,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.dtzx = gpu_sparse_mat(self.dtzx)
         self.dtzy = gpu_sparse_mat(self.dtzy)
 
+        # Move only the CPML convolutional terms to GPU that are used
         if self.bc_low[0].lower() == "cpml":
             self.psiHa_z_low = cp.asarray(self.psiHa_z_low)
             self.psiHb_y_low = cp.asarray(self.psiHb_y_low)
@@ -686,7 +687,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.J_old = np.zeros_like(self.J.toarray())
             if self.verbose>1:
                     print("Starting time-stepping with CPML...")
-    
+
+        # Compute the curl of E fields
         dxyEz = self.dxy * self.E.field_z
         dxzEy = self.dxz * self.E.field_y
         dyxEz = self.dyx * self.E.field_z
@@ -694,11 +696,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dzxEy = self.dzx * self.E.field_y
         dzyEx = self.dzy * self.E.field_x
 
+        # Manipulate the curl of E for TransmissionLine injection if applicable
         if self.source_type.lower() == "transmissionline":
             if not self.injection_done:
                 dxzEy -= self.tf_dxz * self.E_trans.field_y
                 dyzEx -= self.tf_dyz * self.E_trans.field_x
-        
+
+        # Update the CPML convolutional terms for the magnetic field components
         if self.bc_low[0].lower() == "cpml":
             self.psiHa_z_low = self.pml_b_H_x_low * self.psiHa_z_low + self.pml_c_H_x_low * dzxEy[self.idx_x_low]
             self.psiHb_y_low = self.pml_b_H_x_low * self.psiHb_y_low + self.pml_c_H_x_low * dyxEz[self.idx_x_low]
@@ -718,10 +722,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiHa_y_high = self.pml_b_H_z_high * self.psiHa_y_high + self.pml_c_H_z_high * dyzEx[self.idx_z_high]
             self.psiHb_x_high = self.pml_b_H_z_high * self.psiHb_x_high + self.pml_c_H_z_high * dxzEy[self.idx_z_high]
 
+        # Update the magnetic field components using the curl of E
         self.H.field_x -= self.dt * self.imu.field_x * (dxyEz - dxzEy)
         self.H.field_y -= self.dt * self.imu.field_y * (dyzEx - dyxEz)
         self.H.field_z -= self.dt * self.imu.field_z * (dzxEy - dzyEx)
 
+        # Add the CPML convolutional terms to the magnetic field components at the boundaries
         if self.bc_low[0].lower() == "cpml":
             self.H.field_y[self.idx_x_low] -= self.dt * self.imu.field_y[self.idx_x_low] * - self.psiHb_y_low
             self.H.field_z[self.idx_x_low] -= self.dt * self.imu.field_z[self.idx_x_low] * self.psiHa_z_low
@@ -741,6 +747,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.H.field_x[self.idx_z_high] -= self.dt * self.imu.field_x[self.idx_z_high] * - self.psiHb_x_high
             self.H.field_y[self.idx_z_high] -= self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high
 
+        # Compute the curl of H fields
         dtxyHz = self.dtxy * self.H.field_z
         dtxzHy = self.dtxz * self.H.field_y
         dtyxHz = self.dtyx * self.H.field_z
@@ -748,11 +755,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         dtzxHy = self.dtzx * self.H.field_y
         dtzyHx = self.dtzy * self.H.field_x
 
+        # Manipulate the curl of H for TransmissionLine injection if applicable
         if self.source_type.lower() == "transmissionline":
             if not self.injection_done:
                 dtxzHy += self.tf_dtxz * self.H_trans.field_y
                 dtyzHx += self.tf_dtyz * self.H_trans.field_x
 
+        # Update the CPML convolutional terms for the electric field components
         if self.bc_low[0].lower() == "cpml":
             self.psiEa_z_low = self.pml_b_E_x_low * self.psiEa_z_low + self.pml_c_E_x_low * dtzxHy[self.idx_x_low]
             self.psiEb_y_low = self.pml_b_E_x_low * self.psiEb_y_low + self.pml_c_E_x_low * dtyxHz[self.idx_x_low]
@@ -772,6 +781,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.psiEa_y_high = self.pml_b_E_z_high * self.psiEa_y_high + self.pml_c_E_z_high * dtyzHx[self.idx_z_high]
             self.psiEb_x_high = self.pml_b_E_z_high * self.psiEb_x_high + self.pml_c_E_z_high * dtxzHy[self.idx_z_high]
 
+        # Update the electric field components using the curl of H and the current density
         self.E.field_x += (self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                             - self.dt * self.ieps.field_x * self.J.field_x)
         self.E.field_y += (self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
@@ -779,6 +789,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.E.field_z += (self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                             - self.dt * self.ieps.field_z * self.J.field_z)
 
+        # Add the CPML convolutional terms to the electric field components at the boundaries
         if self.bc_low[0].lower() == "cpml":
             self.E.field_y[self.idx_x_low] += self.dt * self.ieps.field_y[self.idx_x_low] * - self.psiEb_y_low
             self.E.field_z[self.idx_x_low] += self.dt * self.ieps.field_z[self.idx_x_low] * self.psiEa_z_low
@@ -798,6 +809,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.E.field_x[self.idx_z_high] += self.dt * self.ieps.field_x[self.idx_z_high] * - self.psiEb_x_high
             self.E.field_y[self.idx_z_high] += self.dt * self.ieps.field_y[self.idx_z_high] * self.psiEa_y_high
 
+        # Include current computation
         if self.use_conductivity:
             if self.source_type == "hard":
                 self.J.fromarray(self.sigma.toarray() * self.E.toarray())
@@ -817,6 +829,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         if self.activate_cpml:
 
+            # Compute the curl of E fields using MKL dot products
             dxyEz = dot_product_mkl(self.dxy, self.E.field_z)
             dxzEy = dot_product_mkl(self.dxz, self.E.field_y)
             dyxEz = dot_product_mkl(self.dyx, self.E.field_z)
@@ -824,11 +837,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dzxEy = dot_product_mkl(self.dzx, self.E.field_y)
             dzyEx = dot_product_mkl(self.dzy, self.E.field_x)
 
+            # Manipulate the curl of E for TransmissionLine injection if applicable
             if self.source_type.lower() == "transmissionline":
                 if not self.injection_done:
                     dxzEy -= dot_product_mkl(self.tf_dxz, self.E_trans.field_y)
                     dyzEx -= dot_product_mkl(self.tf_dyz, self.E_trans.field_x)
 
+            # Update the CPML convolutional terms for the magnetic field components
             if self.bc_low[0].lower() == "cpml":
                 self.psiHa_z_low = self.pml_b_H_x_low * self.psiHa_z_low + self.pml_c_H_x_low * dzxEy[self.idx_x_low]
                 self.psiHb_y_low = self.pml_b_H_x_low * self.psiHb_y_low + self.pml_c_H_x_low * dyxEz[self.idx_x_low]
@@ -848,10 +863,12 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.psiHa_y_high = self.pml_b_H_z_high * self.psiHa_y_high + self.pml_c_H_z_high * dyzEx[self.idx_z_high]
                 self.psiHb_x_high = self.pml_b_H_z_high * self.psiHb_x_high + self.pml_c_H_z_high * dxzEy[self.idx_z_high]
 
+            # Update the magnetic field components using the curl of E
             self.H.field_x -= self.dt * self.imu.field_x * (dxyEz - dxzEy)
             self.H.field_y -= self.dt * self.imu.field_y * (dyzEx - dyxEz)
             self.H.field_z -= self.dt * self.imu.field_z * (dzxEy - dzyEx)
 
+            # Add the CPML convolutional terms to the magnetic field components at the boundaries
             if self.bc_low[0].lower() == "cpml":
                 self.H.field_y[self.idx_x_low] -= self.dt * self.imu.field_y[self.idx_x_low] * - self.psiHb_y_low
                 self.H.field_z[self.idx_x_low] -= self.dt * self.imu.field_z[self.idx_x_low] * self.psiHa_z_low
@@ -871,6 +888,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.H.field_x[self.idx_z_high] -= self.dt * self.imu.field_x[self.idx_z_high] * - self.psiHb_x_high
                 self.H.field_y[self.idx_z_high] -= self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high
 
+            # Compute the curl of H fields using MKL dot products
             dtxyHz = dot_product_mkl(self.dtxy, self.H.field_z)
             dtxzHy = dot_product_mkl(self.dtxz, self.H.field_y)
             dtyxHz = dot_product_mkl(self.dtyx, self.H.field_z)
@@ -878,11 +896,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             dtzxHy = dot_product_mkl(self.dtzx, self.H.field_y)
             dtzyHx = dot_product_mkl(self.dtzy, self.H.field_x)
 
+            # Manipulate the curl of H for TransmissionLine injection if applicable
             if self.source_type.lower() == "transmissionline":
                 if not self.injection_done:
                     dtxzHy += dot_product_mkl(self.tf_dtxz, self.H_trans.field_y)
                     dtyzHx += dot_product_mkl(self.tf_dtyz, self.H_trans.field_x)
 
+            # Update the CPML convolutional terms for the electric field components
             if self.bc_low[0].lower() == "cpml":
                 self.psiEa_z_low = self.pml_b_E_x_low * self.psiEa_z_low + self.pml_c_E_x_low * dtzxHy[self.idx_x_low]
                 self.psiEb_y_low = self.pml_b_E_x_low * self.psiEb_y_low + self.pml_c_E_x_low * dtyxHz[self.idx_x_low]
@@ -902,6 +922,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.psiEa_y_high = self.pml_b_E_z_high * self.psiEa_y_high + self.pml_c_E_z_high * dtyzHx[self.idx_z_high]
                 self.psiEb_x_high = self.pml_b_E_z_high * self.psiEb_x_high + self.pml_c_E_z_high * dtxzHy[self.idx_z_high]
 
+            # Update the electric field components using the curl of H and the current density
             self.E.field_x += (self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
                                 - self.dt * self.ieps.field_x * self.J.field_x)
             self.E.field_y += (self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
@@ -909,6 +930,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.E.field_z += (self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
                                 - self.dt * self.ieps.field_z * self.J.field_z)
 
+            # Add the CPML convolutional terms to the electric field components at the boundaries
             if self.bc_low[0].lower() == "cpml":
                 self.E.field_y[self.idx_x_low] += self.dt * self.ieps.field_y[self.idx_x_low] * - self.psiEb_y_low
                 self.E.field_z[self.idx_x_low] += self.dt * self.ieps.field_z[self.idx_x_low] * self.psiEa_z_low
@@ -928,6 +950,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 self.E.field_x[self.idx_z_high] += self.dt * self.ieps.field_x[self.idx_z_high] * - self.psiEb_x_high
                 self.E.field_y[self.idx_z_high] += self.dt * self.ieps.field_y[self.idx_z_high] * self.psiEa_y_high
 
+            # Include current computation
             if self.use_conductivity:
                 if self.source_type == "hard":
                     self.J.fromarray(self.sigma.toarray() * self.E.toarray())
