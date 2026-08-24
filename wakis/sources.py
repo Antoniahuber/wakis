@@ -92,8 +92,8 @@ class Beam:
         """
         if self.is_first_update:
             self.ixs, self.iys = (
-                np.abs(solver.x - self.xsource).argmin(),
-                np.abs(solver.y - self.ysource).argmin(),
+                np.abs(solver.grid.x - self.xsource).argmin(),
+                np.abs(solver.grid.y - self.ysource).argmin(),
             )
             if solver.source_type.lower() == "soft":
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
@@ -113,8 +113,7 @@ class Beam:
                 self.zmin = solver.z.min()
         # reference shift
         s0 = self.zmin - self.v * self.ti
-        z_dual = solver.z + solver.dz / 2
-        s = z_dual - self.v * (t + solver.dt / 2)
+        s = solver.z - self.v * (t + solver.dt / 2)
 
         # gaussian
         profile = (
@@ -132,17 +131,17 @@ class Beam:
             if solver.injection_done == False:
 
                 # Update the transverse E and H fields on the injection planes using the pre-calculated 2D templates
-                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.z[solver.n_pml+1], t, side="low")
+                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.grid.z[solver.n_pml+1], t, side="low")
                 solver.E_trans[:,:, solver.n_pml+1, "x"] = Einj_x
                 solver.E_trans[:,:, solver.n_pml+1, "y"] = Einj_y
-                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[solver.n_pml+1] + solver.dz[solver.n_pml+1]/2, t+solver.dt/2, side="low")
+                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[solver.n_pml+1], t+solver.dt/2, side="low")
                 solver.H_trans[:,:, solver.n_pml+1, "x"] = -Hinj_x
                 solver.H_trans[:,:, solver.n_pml+1, "y"] = -Hinj_y
 
-                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.z[-solver.n_pml-2], t, side="high")
+                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.grid.z[-solver.n_pml-1-2], t, side="high")
                 solver.E_trans[:,:, -solver.n_pml-2, "x"] = -Einj_x
                 solver.E_trans[:,:, -solver.n_pml-2, "y"] = -Einj_y
-                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[-solver.n_pml-2] + solver.dz[-solver.n_pml-2]/2, t+solver.dt/2, side="high")
+                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[-solver.n_pml-2], t+solver.dt/2, side="high")
                 solver.H_trans[:,:, -solver.n_pml-2, "x"] = Hinj_x
                 solver.H_trans[:,:, -solver.n_pml-2, "y"] = Hinj_y
 

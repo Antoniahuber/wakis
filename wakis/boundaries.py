@@ -364,13 +364,13 @@ class BCsMixin:
 
         # Fill
         if self.bc_low[0].lower() == "cpml":
-            interface = self.x[self.n_pml]
-            L = interface - self.x[0]
+            interface = self.grid.x[self.n_pml]
+            L = interface - self.grid.x[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = interface - self.x[i]   # distance into PML
-                tdist = interface - (self.x[i] + self.dx[i]/2)   # distance into PML for half-grid points
+                dist = interface - self.grid.x[i]   # distance into PML
+                tdist = interface - (self.grid.x[i] + self.dx[i]/2)   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L)**self.pml_exp
                 ax[i] = (dist / L)
@@ -385,13 +385,13 @@ class BCsMixin:
                 self.talpha[i, :, :, 'x'] = self.alpha_max * (1 - tax[i])
 
         if self.bc_low[1].lower() == "cpml":
-            interface = self.y[self.n_pml]
-            L = interface - self.y[0]
+            interface = self.grid.y[self.n_pml]
+            L = interface - self.grid.y[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = interface - self.y[i]   # distance into PML
-                tdist = interface - (self.y[i] + self.dy[i]/2)   # distance into PML for half-grid points
+                dist = interface - self.grid.y[i]   # distance into PML
+                tdist = interface - (self.grid.y[i] + self.dy[i]/2)   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sy[i] = (dist / L)**self.pml_exp
                 tsy[i] = (tdist / L)**self.pml_exp
@@ -406,13 +406,13 @@ class BCsMixin:
                 self.talpha[:, i, :, 'y'] = self.alpha_max * (1 - tay[i])
 
         if self.bc_low[2].lower() == "cpml":
-            interface = self.z[self.n_pml]
-            L = interface - self.z[0]
+            interface = self.grid.z[self.n_pml]
+            L = interface - self.grid.z[0]
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(self.n_pml):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = interface - self.z[i]   # distance into PML
-                tdist = interface - (self.z[i] + self.dz[i]/2)   # distance into PML for half-grid points
+                dist = interface - self.grid.z[i]   # distance into PML
+                tdist = interface - (self.grid.z[i] + self.dz[i]/2)   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sz[i] = (dist / L)**self.pml_exp
                 tsz[i] = (tdist / L)**self.pml_exp
@@ -427,13 +427,13 @@ class BCsMixin:
                 self.talpha[:, :, i, 'z'] = self.alpha_max * (1 - taz[i])
 
         if self.bc_high[0].lower() == "cpml":
-            interface = self.x[-1-self.n_pml]
-            L = self.x[-1] - interface
+            interface = self.grid.x[-1-self.n_pml]
+            L = self.grid.x[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = self.x[i] - interface   # distance into PML
-                tdist = (self.x[i] + self.dx[i]/2) - interface   # distance into PML for half-grid points
+                dist = self.grid.x[i] - interface   # distance into PML
+                tdist = (self.grid.x[i] + self.dx[i]/2) - interface   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sx[i] = (dist / L)**self.pml_exp
                 tsx[i] = (tdist / L)**self.pml_exp
@@ -448,13 +448,13 @@ class BCsMixin:
                 self.talpha[i, :, :, 'x'] = self.alpha_max * (1 - tax[i])
 
         if self.bc_high[1].lower() == "cpml":
-            interface = self.y[-1-self.n_pml]
-            L = self.y[-1] - interface
+            interface = self.grid.y[-1-self.n_pml]
+            L = self.grid.y[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = self.y[i] - interface   # distance into PML
-                tdist = (self.y[i] + self.dy[i]/2) - interface   # distance into PML for half-grid points
+                dist = self.grid.y[i] - interface   # distance into PML
+                tdist = (self.grid.y[i] + self.dy[i]/2) - interface   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sy[i] = (dist / L)**self.pml_exp
                 tsy[i] = (tdist / L)**self.pml_exp
@@ -469,13 +469,13 @@ class BCsMixin:
                 self.talpha[:, i, :, 'y'] = self.alpha_max * (1 - tay[i])
 
         if self.bc_high[2].lower() == "cpml":
-            interface = self.z[-1-self.n_pml]
-            L = self.z[-1] - interface
+            interface = self.grid.z[-1-self.n_pml]
+            L = self.grid.z[-1] - interface
             sigma_max = -self.sigma_factor * (self.pml_exp + 1) * np.log(R0) / (2 * L * eta_0)
             for i in range(-self.n_pml, 0):
                 # Compute distance into PML for primal and dual grid points, then scale to [0,1] for profile functions
-                dist = self.z[i] - interface   # distance into PML
-                tdist = self.z[i] + self.dz[i]/2 - interface   # distance into PML for half-grid points
+                dist = self.grid.z[i] - interface   # distance into PML
+                tdist = self.grid.z[i] + self.dz[i]/2 - interface   # distance into PML for half-grid points
                 tdist = max(0.0, min(tdist, L))
                 sz[i] = (dist / L)**self.pml_exp
                 tsz[i] = (tdist / L)**self.pml_exp
