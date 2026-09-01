@@ -17,11 +17,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.constants import c as c_light
 from scipy.constants import mu_0, epsilon_0
-from .field import Field
-from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
 import scipy.sparse as sp
-import scipy.sparse.linalg as spla
 Z0 = np.sqrt(mu_0 / epsilon_0)  # Wave impedance in free space [Ohms]
 
 
