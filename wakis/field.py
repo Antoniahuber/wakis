@@ -66,7 +66,9 @@ class Field:
             if imported_cupy:
                 self.xp = xp_gpu
             else:
-                print("*** cupy could not be imported, please CUDA check installation")
+                raise ImportError(
+                    "[!] CuPy could not be imported, please check CUDA installation"
+                )
         else:
             self.xp = xp
 
@@ -572,7 +574,7 @@ class Field:
     def inspect(
         self,
         plane="ZY",
-        cmap="bwr",
+        cmap=None,
         backend="matplotlib",
         component="z",
         grid=None,
@@ -580,7 +582,7 @@ class Field:
         bounding_box=False,
         show_grid=False,
         dpi=100,
-        figsize=[8, 6],
+        figsize=[10, 6],
         x=None,
         y=None,
         z=None,
@@ -600,7 +602,8 @@ class Field:
         plane : {'XY', 'XZ', 'YZ', 'ZX', 'ZY'}, optional
             Plane to visualize. Default is 'YZ'.
         cmap : str, optional
-            Colormap for the plot. Default is 'bwr'.
+            Colormap for the plot. Default is 'Reds' for positive values and
+            "bwr" for positive/negative values.
         backend : {'matplotlib', 'pyvista'}, optional
             Visualization backend. Default is 'matplotlib'.
         component : {'x', 'y', 'z', 'abs'}, optional
@@ -670,9 +673,7 @@ class Field:
                 ylo, yhi = 0, self.Ny
                 zlo, zhi = 0, self.Nz
                 X, Y, Z = xp.meshgrid(_x, _y, _z, indexing="ij")
-                pv_grid = pv.StructuredGrid(
-                    X.transpose(), Y.transpose(), Z.transpose()
-                )
+                pv_grid = pv.StructuredGrid(X.transpose(), Y.transpose(), Z.transpose())
 
             # --- Assign scalar data ---
             if component == "abs":
@@ -739,7 +740,11 @@ class Field:
 
             # Optional STL solid outlines (only when grid is a GridFIT3D)
             outline_actors = {}
-            if grid is not None and hasattr(grid, "stl_solids") and hasattr(grid, "read_stl"):
+            if (
+                grid is not None
+                and hasattr(grid, "stl_solids")
+                and hasattr(grid, "read_stl")
+            ):
                 stl_colors_map = getattr(grid, "stl_colors", {})
                 for key in grid.stl_solids:
                     surf = grid.read_stl(key)
@@ -747,9 +752,11 @@ class Field:
                         init_outline = surf.slice(
                             normal=normal, origin=origin_fn(position)
                         )
-                        color = 'black'
+                        color = "black"
                         outline_actors[key] = (
-                            pl.add_mesh(init_outline, color=color, name=f"outline_{key}"),
+                            pl.add_mesh(
+                                init_outline, color=color, name=f"outline_{key}"
+                            ),
                             surf,
                         )
 
@@ -838,7 +845,7 @@ class Field:
             xax, yax = "No. of cells", "No. of cells"
             pos = "Custom slice"
 
-        elif plane == "XY":
+        elif plane == "XY" or plane == "YX":
             key = [slice(0, self.Nx), slice(0, self.Ny), int(self.Nz // 2)]
             x, y, z = key[0], key[1], key[2]
             extent = (0, self.Nx, 0, self.Ny)
@@ -846,7 +853,7 @@ class Field:
             transpose = True
             pos = f"z={z}"
 
-        elif plane == "XZ":
+        elif plane == "XZ" or plane == "ZX":
             key = [slice(0, self.Nx), int(self.Ny // 2), slice(0, self.Nz)]
             x, y, z = key[0], key[1], key[2]
             extent = (0, self.Nz, 0, self.Nx)
@@ -854,7 +861,7 @@ class Field:
             transpose = False
             pos = f"y={y}"
 
-        elif plane == "YZ":
+        elif plane == "YZ" or plane == "ZY":
             key = [int(self.Nx // 2), slice(0, self.Ny), slice(0, self.Nz)]
             x, y, z = key[0], key[1], key[2]
             extent = (0, self.Nz, 0, self.Ny)
@@ -867,6 +874,13 @@ class Field:
 
         im = {}
 
+        # cmap
+        if cmap is None:
+            if self.get_abs(as_matrix=True).min() < 0:
+                cmap = "bwr"
+            else:
+                cmap = "Reds"
+
         for d in [0, 1, 2]:
             field = self.to_matrix(d)
 
@@ -877,7 +891,7 @@ class Field:
                 im[d] = axs[d].imshow(
                     field[x, y, z].T,
                     cmap=cmap,
-                    vmin=-field.max(),
+                    vmin=field.min(),
                     vmax=field.max(),
                     extent=extent,
                     origin="lower",
@@ -888,7 +902,7 @@ class Field:
                 im[d] = axs[d].imshow(
                     field[x, y, z],
                     cmap=cmap,
-                    vmin=-field.max(),
+                    vmin=field.min(),
                     vmax=field.max(),
                     extent=extent,
                     origin="lower",
