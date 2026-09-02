@@ -53,6 +53,11 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         fmax=1e9,
         dtype=np.float64,
         n_pml=10,
+        kappa_max=5,
+        alpha_max=0.05,
+        sigma_factor=1,
+        pml_exp=4,
+        source_type="hard",
         bg=[1.0, 1.0, 0.0],
         verbose=2,
     ):
@@ -138,13 +143,17 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.fmax = fmax  # maximum frequency for SIBC
         self.activate_abc = False  # Will turn true if abc BCs are chosen
         self.activate_pml = False  # Will turn true if pml BCs are chosen
+        self.activate_cpml = False  # Will turn true if cpml BCs are chosen
+        self.source_type = str(source_type).lower()  # 'hard' or 'soft' source update
+        if self.source_type not in ("hard", "soft"):
+            raise ValueError(f"Invalid source_type={source_type!r}; expected 'hard' or 'soft'.")
         self.use_conductivity = False  # Will turn true with conductive material or pml
         self.imported_mkl = imported_mkl  # Use MKL backend when available
         self.one_step = self._one_step
 
         if use_stl:
             self.use_conductors = False
-        self.update_logger(["use_gpu", "use_mpi"])
+        self.update_logger(["use_gpu", "use_mpi", "source_type"])
 
         # Grid
         self.grid = grid
@@ -246,7 +255,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
                 bg[1] * mu_0,
                 bg[2],
             )
-            self.use_conductivity = True
+            if not bg == [1.0, 1.0, 0.0]:
+                self.use_conductivity = True
         else:
             self.eps_bg, self.mu_bg, self.sigma_bg = (
                 bg[0] * eps_0,
@@ -287,6 +297,23 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.update_logger(["n_pml"])
             if verbose > 1:
                 print(f"    * PML thickness: {self.n_pml} cells")
+
+        # Fill PML BCs
+        if self.activate_cpml:
+            if self.use_mpi:
+                raise NotImplementedError("CPML boundary conditions are not yet supported with MPI.")
+            if verbose:
+                print("Filling CPML parameters...")
+            self.one_step = self._one_step_cpml
+            self.n_pml = n_pml
+            self.kappa_max = kappa_max
+            self.alpha_max = alpha_max
+            self.sigma_factor = sigma_factor
+            self.pml_exp = pml_exp
+            self._initialize_CPML()
+            self.update_logger(["n_pml", "kappa_max", "alpha_max", "sigma_factor", "pml_exp"])
+            if verbose > 1:
+                print(f"    * CPML thickness: {self.n_pml} cells")
 
         # Timestep calculation
         if verbose:
@@ -340,14 +367,20 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.sigma.toarray(), shape=(3 * N, 3 * N), dtype=self.dtype
         )
 
-        self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
-        self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
+        if self.activate_cpml:
+            self._initialize_CPML_matrices() # Calculate diagonal matrices for CPML update equations
+        else:
+            self.tDsiDmuiDaC = self.iDa * self.iDmu * self.C * self.Ds
+            self.itDaiDepsDstC = self.iDeps * self.itDa * self.C.transpose() * self.tDs
 
         if imported_mkl and not self.use_gpu:  # MKL backend for CPU
             if verbose:
                 print("Using MKL backend for time-stepping...")
-            self.tDsiDmuiDaC = mkl_sparse_mat(self.tDsiDmuiDaC)
-            self.itDaiDepsDstC = mkl_sparse_mat(self.itDaiDepsDstC)
+            if self.activate_cpml:
+                self._move_CPML_to_mkl()
+            else:
+                self.tDsiDmuiDaC = mkl_sparse_mat(self.tDsiDmuiDaC)
+                self.itDaiDepsDstC = mkl_sparse_mat(self.itDaiDepsDstC)
             self.one_step = (
                 self._mpi_one_step_mkl if self.use_mpi else self._one_step_mkl
             )
@@ -357,10 +390,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             if verbose:
                 print("Moving to GPU...")
             if imported_cupyx:
-                self.tDsiDmuiDaC = gpu_sparse_mat(self.tDsiDmuiDaC)
-                self.itDaiDepsDstC = gpu_sparse_mat(self.itDaiDepsDstC)
                 self.ieps.to_gpu()
                 self.sigma.to_gpu()
+                if self.activate_cpml:
+                    self._move_CPML_to_gpu()
+                else:
+                    self.tDsiDmuiDaC = gpu_sparse_mat(self.tDsiDmuiDaC)
+                    self.itDaiDepsDstC = gpu_sparse_mat(self.itDaiDepsDstC)
             else:
                 raise ImportError(
                     "[!] cupyx could not be imported, please check CUDA installation"
@@ -372,8 +408,38 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.solverInitializationTime = time.time() - t0
         self.update_logger(["solverInitializationTime"])
 
-        self.solverInitializationTime = time.time() - t0
-        self.update_logger(["solverInitializationTime"])
+    def _move_CPML_to_mkl(self):
+        self.dxy = mkl_sparse_mat(self.dxy)
+        self.dxz = mkl_sparse_mat(self.dxz)
+        self.dyz = mkl_sparse_mat(self.dyz)
+        self.dyx = mkl_sparse_mat(self.dyx)
+        self.dzx = mkl_sparse_mat(self.dzx)
+        self.dzy = mkl_sparse_mat(self.dzy)
+        self.dtxy = mkl_sparse_mat(self.dtxy)
+        self.dtxz = mkl_sparse_mat(self.dtxz)
+        self.dtyz = mkl_sparse_mat(self.dtyz)
+        self.dtyx = mkl_sparse_mat(self.dtyx)
+        self.dtzx = mkl_sparse_mat(self.dtzx)
+        self.dtzy = mkl_sparse_mat(self.dtzy)
+
+    def _move_CPML_to_gpu(self):
+        self.imu.to_gpu()
+        self.dxy = gpu_sparse_mat(self.dxy)
+        self.dxz = gpu_sparse_mat(self.dxz)
+        self.dyz = gpu_sparse_mat(self.dyz)
+        self.dyx = gpu_sparse_mat(self.dyx)
+        self.dzx = gpu_sparse_mat(self.dzx)
+        self.dzy = gpu_sparse_mat(self.dzy)
+        self.dtxy = gpu_sparse_mat(self.dtxy)
+        self.dtxz = gpu_sparse_mat(self.dtxz)
+        self.dtyz = gpu_sparse_mat(self.dtyz)
+        self.dtyx = gpu_sparse_mat(self.dtyx)
+        self.dtzx = gpu_sparse_mat(self.dtzx)
+        self.dtzy = gpu_sparse_mat(self.dtzy)
+        self.pml_b_H.to_gpu()
+        self.pml_c_H.to_gpu()
+        self.pml_b_E.to_gpu()
+        self.pml_c_E.to_gpu()
 
     def update_tensors(self, tensor="all"):
         """
@@ -530,6 +596,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            if self.source_type == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
@@ -546,31 +614,167 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            if self.source_type == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.source_type == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
 
+    def _one_step_cpml(self):
+    # Including the convolutional terms for the CPML update equations
+        if self.step_0:
+            self._set_ghosts_to_0()
+            self.step_0 = False
+            self._attrcleanup()
+            if self.source_type == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
+            if self.verbose>1:
+                    print("Starting time-stepping with CPML...")
+    
+        dxyEz = self.dxy * self.E.field_z
+        dxzEy = self.dxz * self.E.field_y
+        dyxEz = self.dyx * self.E.field_z
+        dyzEx = self.dyz * self.E.field_x
+        dzxEy = self.dzx * self.E.field_y
+        dzyEx = self.dzy * self.E.field_x
+        
+        self.psiHa.field_x = self.pml_b_H.field_y * self.psiHa.field_x + self.pml_c_H.field_y * dxyEz
+        self.psiHb.field_x = self.pml_b_H.field_z * self.psiHb.field_x + self.pml_c_H.field_z * dxzEy
+        self.psiHb.field_y = self.pml_b_H.field_x * self.psiHb.field_y + self.pml_c_H.field_x * dyxEz
+        self.psiHa.field_y = self.pml_b_H.field_z * self.psiHa.field_y + self.pml_c_H.field_z * dyzEx
+        self.psiHa.field_z = self.pml_b_H.field_x * self.psiHa.field_z + self.pml_c_H.field_x * dzxEy
+        self.psiHb.field_z = self.pml_b_H.field_y * self.psiHb.field_z + self.pml_c_H.field_y * dzyEx
+
+        self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * (dxyEz - dxzEy)
+        ) - self.dt * self.imu.field_x * (self.psiHa.field_x - self.psiHb.field_x)
+        self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * (dyzEx - dyxEz)
+        ) - self.dt * self.imu.field_y * (self.psiHa.field_y - self.psiHb.field_y)           
+        self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * (dzxEy - dzyEx)
+        ) - self.dt * self.imu.field_z * (self.psiHa.field_z - self.psiHb.field_z)
+
+        dtxyHz = self.dtxy * self.H.field_z
+        dtxzHy = self.dtxz * self.H.field_y
+        dtyxHz = self.dtyx * self.H.field_z
+        dtyzHx = self.dtyz * self.H.field_x
+        dtzxHy = self.dtzx * self.H.field_y
+        dtzyHx = self.dtzy * self.H.field_x
+
+        self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
+        self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
+        self.psiEb.field_y = self.pml_b_E.field_x * self.psiEb.field_y + self.pml_c_E.field_x * dtyxHz
+        self.psiEa.field_y = self.pml_b_E.field_z * self.psiEa.field_y + self.pml_c_E.field_z * dtyzHx
+        self.psiEa.field_z = self.pml_b_E.field_x * self.psiEa.field_z + self.pml_c_E.field_x * dtzxHy
+        self.psiEb.field_z = self.pml_b_E.field_y * self.psiEb.field_z + self.pml_c_E.field_y * dtzyHx
+
+        self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
+                            - self.dt * self.ieps.field_x * self.J.field_x
+                            + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
+        self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
+                            - self.dt * self.ieps.field_y * self.J.field_y
+                            + self.dt * self.ieps.field_y * (self.psiEa.field_y - self.psiEb.field_y))            
+        self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
+                            - self.dt * self.ieps.field_z * self.J.field_z
+                            + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z))
+
+        if self.use_conductivity:
+            if self.source_type == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.source_type == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
+        
     def _one_step_mkl(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            if self.source_type == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
 
-        self.H.fromarray(
-            self.H.toarray()
-            - self.dt * dot_product_mkl(self.tDsiDmuiDaC, self.E.toarray())
-        )
+        if self.activate_cpml:
 
-        self.E.fromarray(
-            self.E.toarray()
-            + self.dt
-            * (
-                dot_product_mkl(self.itDaiDepsDstC, self.H.toarray())
-                - self.ieps.toarray() * self.J.toarray()
+            dxyEz = dot_product_mkl(self.dxy, self.E.field_z)
+            dxzEy = dot_product_mkl(self.dxz, self.E.field_y)
+            dyxEz = dot_product_mkl(self.dyx, self.E.field_z)
+            dyzEx = dot_product_mkl(self.dyz, self.E.field_x)
+            dzxEy = dot_product_mkl(self.dzx, self.E.field_y)
+            dzyEx = dot_product_mkl(self.dzy, self.E.field_x)
+            
+            self.psiHa.field_x = self.pml_b_H.field_y * self.psiHa.field_x + self.pml_c_H.field_y * dxyEz
+            self.psiHb.field_x = self.pml_b_H.field_z * self.psiHb.field_x + self.pml_c_H.field_z * dxzEy
+            self.psiHb.field_y = self.pml_b_H.field_x * self.psiHb.field_y + self.pml_c_H.field_x * dyxEz
+            self.psiHa.field_y = self.pml_b_H.field_z * self.psiHa.field_y + self.pml_c_H.field_z * dyzEx
+            self.psiHa.field_z = self.pml_b_H.field_x * self.psiHa.field_z + self.pml_c_H.field_x * dzxEy
+            self.psiHb.field_z = self.pml_b_H.field_y * self.psiHb.field_z + self.pml_c_H.field_y * dzyEx
+
+            self.H.field_x = (self.H.field_x - self.dt * self.imu.field_x * (dxyEz - dxzEy)
+            ) - self.dt * self.imu.field_x * (self.psiHa.field_x - self.psiHb.field_x)
+            self.H.field_y = (self.H.field_y - self.dt * self.imu.field_y * (dyzEx - dyxEz)
+            ) - self.dt * self.imu.field_y * (self.psiHa.field_y - self.psiHb.field_y)           
+            self.H.field_z = (self.H.field_z - self.dt * self.imu.field_z * (dzxEy - dzyEx)
+            ) - self.dt * self.imu.field_z * (self.psiHa.field_z - self.psiHb.field_z)
+
+            dtxyHz = dot_product_mkl(self.dtxy, self.H.field_z)
+            dtxzHy = dot_product_mkl(self.dtxz, self.H.field_y)
+            dtyxHz = dot_product_mkl(self.dtyx, self.H.field_z)
+            dtyzHx = dot_product_mkl(self.dtyz, self.H.field_x)
+            dtzxHy = dot_product_mkl(self.dtzx, self.H.field_y)
+            dtzyHx = dot_product_mkl(self.dtzy, self.H.field_x)
+
+            self.psiEa.field_x = self.pml_b_E.field_y * self.psiEa.field_x + self.pml_c_E.field_y * dtxyHz
+            self.psiEb.field_x = self.pml_b_E.field_z * self.psiEb.field_x + self.pml_c_E.field_z * dtxzHy
+            self.psiEb.field_y = self.pml_b_E.field_x * self.psiEb.field_y + self.pml_c_E.field_x * dtyxHz
+            self.psiEa.field_y = self.pml_b_E.field_z * self.psiEa.field_y + self.pml_c_E.field_z * dtyzHx
+            self.psiEa.field_z = self.pml_b_E.field_x * self.psiEa.field_z + self.pml_c_E.field_x * dtzxHy
+            self.psiEb.field_z = self.pml_b_E.field_y * self.psiEb.field_z + self.pml_c_E.field_y * dtzyHx
+
+            self.E.field_x = (self.E.field_x + self.dt * self.ieps.field_x * (dtxyHz - dtxzHy)
+                                - self.dt * self.ieps.field_x * self.J.field_x
+                                + self.dt * self.ieps.field_x * (self.psiEa.field_x - self.psiEb.field_x))
+            self.E.field_y = (self.E.field_y + self.dt * self.ieps.field_y * (dtyzHx - dtyxHz) 
+                                - self.dt * self.ieps.field_y * self.J.field_y
+                                + self.dt * self.ieps.field_y * (self.psiEa.field_y - self.psiEb.field_y))            
+            self.E.field_z = (self.E.field_z + self.dt * self.ieps.field_z * (dtzxHy - dtzyHx) 
+                                - self.dt * self.ieps.field_z * self.J.field_z
+                                + self.dt * self.ieps.field_z * (self.psiEa.field_z - self.psiEb.field_z)) 
+            
+            if self.use_conductivity:
+                if self.source_type == "hard":
+                    self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+                elif self.source_type == "soft":
+                    Jtemp = self.sigma.toarray() * self.E.toarray()
+                    self.dJ = (Jtemp - self.J_old)
+                    self.J.fromarray(self.J.toarray() + self.dJ)
+                    self.J_old = Jtemp
+
+        else:
+            self.H.fromarray(
+                self.H.toarray()
+                - self.dt * dot_product_mkl(self.tDsiDmuiDaC, self.E.toarray())
             )
-        )
 
-        # include current computation
-        if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            self.E.fromarray(
+                self.E.toarray()
+                + self.dt
+                * (
+                    dot_product_mkl(self.itDaiDepsDstC, self.H.toarray())
+                    - self.ieps.toarray() * self.J.toarray()
+                )
+            )
+
+            # include current computation
+            if self.use_conductivity:
+                if self.source_type == "hard":
+                    self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+                elif self.source_type == "soft":
+                    Jtemp = self.sigma.toarray() * self.E.toarray()
+                    dJ = (Jtemp - self.J_old)
+                    self.J.fromarray(self.J.toarray() + dJ)
+                    self.J_old = Jtemp
 
     def _mpi_initialize(self):
         self.comm = self.grid.comm
@@ -587,6 +791,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            if self.source_type == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray() - self.dt * self.tDsiDmuiDaC * self.E.toarray()
@@ -606,13 +812,21 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._mpi_communicate(self.E)
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            if self.source_type == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.source_type == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
 
     def _mpi_one_step_mkl(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
+            if self.source_type == "soft":
+                self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
             self.H.toarray()
@@ -634,7 +848,13 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self._mpi_communicate(self.E)
         # include current computation
         if self.use_conductivity:
-            self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            if self.source_type == "hard":
+                self.J.fromarray(self.sigma.toarray() * self.E.toarray())
+            elif self.source_type == "soft":
+                Jtemp = self.sigma.toarray() * self.E.toarray()
+                dJ = (Jtemp - self.J_old)
+                self.J.fromarray(self.J.toarray() + dJ)
+                self.J_old = Jtemp
 
     def _mpi_communicate(self, field):
         if self.use_gpu:
@@ -923,6 +1143,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if hasattr(self, "BC"):
             del self.BC
             del self.Dbc
+            del self.Dbc_x, self.Dbc_y, self.Dbc_z
 
         # Matrices
         del self.Px, self.Py, self.Pz
