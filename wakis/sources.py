@@ -119,6 +119,15 @@ class Beam:
             * np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
         )
         # update
+        if solver.source_type.lower() == "hard":
+            solver.J[self.ixs, self.iys, :, "z"] = (
+                self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
+            )
+        if solver.source_type.lower() == "soft":
+            Jprofile = self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
+            dJ = Jprofile - self.Jold
+            solver.J[self.ixs, self.iys, :, "z"] += dJ
+            self.Jold = Jprofile
         if solver.source_type.lower() == "transmissionline":
             Jprofile = self.q * self.v * profile[solver.n_pml+1:-solver.n_pml-2] / solver.tdx[self.ixs] / solver.tdy[self.iys]
             dJ = Jprofile - self.Jold

@@ -8,6 +8,7 @@ import time
 import h5py
 import numpy as np
 import pyvista as pv
+from scipy.ndimage import gaussian_filter
 from scipy.optimize import least_squares
 
 from .field import Field
@@ -21,6 +22,7 @@ try:
     imported_mpi = True
 except ImportError:
     imported_mpi = False
+
 
 class GridFIT3D(PlotMixin):
     """
@@ -57,8 +59,12 @@ class GridFIT3D(PlotMixin):
         stl_colors=None,
         stl_tol=1e-3,
         stl_method="legacy",
+        subpixel_smoothing=False,
+        subpixel_smoothing_factor=4,
+        subpixel_smoothing_threshold=0.3,
+        subpixel_smoothing_bool=True,
         load_from_h5=None,
-        verbose=1,
+        verbose=2,
     ):
         """
         Class holding the grid information and STL importing/handling using PyVista.
@@ -107,8 +113,20 @@ class GridFIT3D(PlotMixin):
             Tolerance factor for STL import, used in grid.select_enclosed_points.
             Default is 1e-3.
         stl_method : str, optional
-            Method for marking cells inside STL solids. Options are "interior_points" (default),
-            "implicit_distance", or "voxelize_rectilinear".
+            Method for marking cells inside STL solids. Options are "legacy" (default),
+            "interior_points", "implicit_distance", or "voxelize_rectilinear".
+        subpixel_smoothing : bool, optional
+            Whether to apply subpixel smoothing to the STL masks after voxelization. Default is False.
+        subpixel_smoothing_factor : int, optional
+            Factor by which to increase the resolution for subpixel smoothing. Default is 4.
+            Memory usage increases with the cube of this factor, so use with caution!
+        subpixel_smoothing_threshold : float, optional
+            Threshold value (0–1) for classifying smoothed cells as inside/outside the solid.
+            Default is 0.3. A lower value includes more boundary cells; typical choice is
+            ``1/(subpixel_smoothing_factor**3)``.
+        subpixel_smoothing_bool : bool, optional
+            If True, convert the smoothed mask to a boolean array after thresholding.
+            Default is True.
         load_from_h5 : str, optional
             Load grid from an h5 file previously saved with `save_to_h5`.
         verbose : int or bool, optional
@@ -198,6 +216,7 @@ class GridFIT3D(PlotMixin):
             self.update_logger(["stl_translate"])
         if stl_scale != 1.0:
             self.update_logger(["stl_scale"])
+
         if stl_solids is not None:
             self._prepare_stl_dicts()
 
@@ -224,9 +243,11 @@ class GridFIT3D(PlotMixin):
                 y:[{ymin:.3f}, {ymax:.3f}],\n\
                 z:[{zmin:.3f}, {zmax:.3f}]"
             )
-            print("    * Minimum cell sizes: dx={:.3e}, dy={:.3e}, dz={:.3e}".format(
-                np.min(self.dx), np.min(self.dy), np.min(self.dz)
-            ))
+            print(
+                "    * Minimum cell sizes: dx={:.3e}, dy={:.3e}, dz={:.3e}".format(
+                    np.min(self.dx), np.min(self.dy), np.min(self.dz)
+                )
+            )
 
         # MPI subdivide domain
         if self.use_mpi:
@@ -246,11 +267,17 @@ class GridFIT3D(PlotMixin):
         # grid G and tilde grid ~G, lengths and inverse areas
         self._compute_grid()
 
-        # tolerance for stl import tol*min(dx,dy,dz)
+        # STL import and mask generation
         if verbose:
             print("Importing STL solids...")
         self.stl_tol = stl_tol
         self.stl_method = stl_method
+        self.use_subpixel_smoothing = subpixel_smoothing
+        self.subpixel_smoothing_factor = subpixel_smoothing_factor
+        self.subpixel_smoothing_threshold = subpixel_smoothing_threshold
+        self.subpixel_smoothing_bool = subpixel_smoothing_bool
+        if self.subpixel_smoothing_threshold is None:
+            self.subpixel_smoothing_threshold = 1 / (self.subpixel_smoothing_factor**3)
         if stl_solids is not None:
             self._mark_cells_in_stl(method=self.stl_method)
 
@@ -330,7 +357,7 @@ class GridFIT3D(PlotMixin):
         self.Z += (self.ZMAX - self.ZMIN) / (2 * self.NZ)
 
         if self.verbose and self.rank == 0:
-            print(f"* Global grid ZMIN={self.ZMIN}, ZMAX={self.ZMAX}, NZ={self.NZ}")
+            print(f" * Global grid ZMIN={self.ZMIN}, ZMAX={self.ZMAX}, NZ={self.NZ}")
 
         # MPI subdomain quantities [TODO: support non-uniform dz with MPI]
         self.Nz = self.NZ // (self.size)
@@ -340,7 +367,7 @@ class GridFIT3D(PlotMixin):
 
         if self.verbose:
             print(
-                f"    * MPI rank {self.rank} of {self.size} initialized with \
+                f"MPI rank {self.rank} of {self.size} initialized with \
                         zmin={self.zmin}, zmax={self.zmax}, Nz={self.Nz}"
             )
         # Add ghost cells
@@ -406,7 +433,7 @@ class GridFIT3D(PlotMixin):
                 self.stl_solids = {"Solid 1": self.stl_solids}
             else:
                 raise Exception(
-                    "[!] Attribute `stl_solids` must contain a string or a dictionary"
+                    "Attribute `stl_solids` must contain a string or a dictionary"
                 )
 
         if type(self.stl_rotate) is not dict:
@@ -456,21 +483,20 @@ class GridFIT3D(PlotMixin):
                 self.stl_materials = {"Solid 1": self.stl_materials}
             else:
                 raise Exception(
-                    "[!] Attribute `stl_materials` must contain a string or a dictionary"
+                    "Attribute `stl_materials` must contain a string or a dictionary"
                 )
-
+        # Material library lookup and conversion to [eps, mu, sigma] format
         for key in self.stl_solids.keys():
-            # if material keys are str, convert to vals using material library
             if type(self.stl_materials[key]) is str:
                 mat_key = self.stl_materials[key].lower()
-                eps_r = material_lib[mat_key][0]
-                mu_r = material_lib[mat_key][1]
-
-                self.stl_materials[key] = [eps_r, mu_r]
-
-                if len(material_lib[mat_key]) == 3:
-                    sigma = material_lib[mat_key][2]
-                    self.stl_materials[key].append(sigma)
+                mat = material_lib[mat_key]
+                self.stl_materials[key] = [
+                    mat[0],
+                    mat[1],
+                    mat[2] if len(mat) == 3 else 0.0,
+                ]
+            elif len(self.stl_materials[key]) == 2:
+                self.stl_materials[key].append(0.0)
 
     def _mark_cells_in_stl(self, method):
         """
@@ -492,11 +518,14 @@ class GridFIT3D(PlotMixin):
             np.min([np.min(self.dx), np.min(self.dy), np.min(self.dz)]) * self.stl_tol
         )
         progress_bar = False
-        if self.Nx * self.Ny * self.Nz > 5e6 and self.verbose:
+        if self.verbose > 1:
             progress_bar = True
 
         for key in self.stl_solids.keys():
             surf = self.read_stl(key)
+
+            if self.verbose:
+                print(f" * Marking cells inside STL solid '{key}'...")
 
             # mark cells in stl [True == in stl, False == out stl]
             if method.lower() == "legacy":
@@ -569,8 +598,6 @@ class GridFIT3D(PlotMixin):
                 )
                 reference_vol = pv.ImageData(
                     dimensions=(self.Nx, self.Ny, self.Nz),
-                    # origin=(self.xmin + dx / 2, self.ymin + dy / 2, self.zmin + dz / 2),
-                    # origin=(self.xmin - dx / 2, self.ymin - dy / 2, self.zmin - dz / 2),
                     origin=(self.xmin, self.ymin, self.zmin),
                     spacing=(dx, dy, dz),
                 )
@@ -582,7 +609,18 @@ class GridFIT3D(PlotMixin):
                     mask = np.reshape(
                         vox["mask"], (self.Nx, self.Ny, self.Nz), order="F"
                     ).astype(bool)
+
                     self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+
+                    # Apply subpixel smoothing if enabled
+                    if self.use_subpixel_smoothing:
+                        self._apply_subpixel_smoothing(
+                            key,
+                            factor=self.subpixel_smoothing_factor,
+                            threshold=self.subpixel_smoothing_threshold,
+                            make_bool=self.subpixel_smoothing_bool,
+                        )
+
                 except Exception:
                     print(
                         f"[!] Warning: voxelization for stl solid {key} failed. Consider checking if the grid is uniform or using a different method."
@@ -598,10 +636,116 @@ class GridFIT3D(PlotMixin):
                     f"[!] Warning: no cells were marked inside stl solid {key}. Consider increasing the tolerance factor (currently {self.stl_tol})."
                 )
 
-            if self.verbose > 1:
+            if self.verbose:
                 print(
                     f"    * STL solid {key}: {np.sum(self.grid[key])} cells marked inside the solid."
                 )
+
+    def _apply_subpixel_smoothing(
+        self,
+        key,
+        factor=4,
+        sigma=0.5,
+        make_bool=True,  # default is True
+        threshold=None,  # default is 1/(factor**3)
+    ):
+        """
+        Apply subpixel smoothing to the STL mask.
+
+        This method creates a higher resolution reference volume for voxelization,
+        applies the voxelization at this higher resolution, and then combines
+        the results to create a more accurate mask with the original grid resolution.
+
+        The smoothing is done by averaging the values from the higher resolution grid
+        and computing the gradient at mask edges, then applying a Gaussian filter.
+
+        Parameters
+        ----------
+        key : str
+            Key of the STL solid to smooth.
+        factor : int, optional
+            Factor by which to increase the resolution for subpixel smoothing. Default is 4.
+        sigma : float, optional
+            Standard deviation for Gaussian filter. Default is 0.5.
+        make_bool : bool, optional
+            Whether to convert the smoothed mask to boolean. Default is True.
+        threshold : float, optional
+            Threshold for converting the smoothed mask to boolean. Default is 0.1.
+        """
+
+        # Skip for vacuum solids
+        if (
+            self.stl_materials[key][0] == 1.0
+            and self.stl_materials[key][1] == 1.0
+            and self.stl_materials[key][2] == 0.0
+        ):
+            return
+
+        if self.verbose > 1:
+            print(f"    * Applying subpixel smoothing with factor {factor}...")
+
+        surface = self.read_stl(key)
+
+        # Create a higher resolution reference volume for voxelization
+        Nx, Ny, Nz = self.Nx * factor, self.Ny * factor, self.Nz * factor
+        dx = (self.xmax - self.xmin) / (Nx)
+        dy = (self.ymax - self.ymin) / (Ny)
+        dz = (self.zmax - self.zmin) / (Nz)
+
+        reference_vol = pv.ImageData(
+            dimensions=(Nx, Ny, Nz),
+            origin=(self.xmin, self.ymin, self.zmin),
+            spacing=(dx, dy, dz),
+        )
+        vox = surface.voxelize_rectilinear(
+            reference_volume=reference_vol,
+        )
+        mask_ref = np.reshape(vox["mask"], (Nx, Ny, Nz), order="F")
+
+        # Combine the higher resolution mask back to the original grid resolution
+        mask = np.zeros((self.Nx, self.Ny, self.Nz)).astype(float)
+        for i in range(factor):
+            for j in range(factor):
+                for k in range(factor):
+                    sub_mask = mask_ref[i::factor, j::factor, k::factor].astype(float)
+                    sub_mask += np.sqrt(sum(g**2 for g in np.gradient(sub_mask)))
+                    mask += gaussian_filter(np.clip(sub_mask, 0, 1), sigma=sigma)
+
+        # Overwrite the previous binary/boolean mask in the PyVista grid
+        mask = np.clip(mask, 0, factor**3) / factor**3  # Normalize to [0, 1]
+        mask = np.where(mask < threshold, 0 * mask, mask)  # clip below threshold
+        if make_bool:
+            mask = mask > threshold
+
+        self.grid[key] = np.reshape(mask, (self.Nx * self.Ny * self.Nz))
+
+    def check_stl_masks_overlap(self):
+        """
+        Check for overlapping STL masks in the grid
+        and print warnings if overlaps are found.
+
+        This method computes the sum of all STL masks and identifies cells
+        that are marked as inside more than one solid.
+        """
+        mask_sum = np.zeros(self.Nx * self.Ny * self.Nz, dtype=int)
+        for key in self.stl_solids.keys():
+            mask_sum += self.grid[key].astype(int)
+
+        overlap_mask = mask_sum > 1
+        num_overlaps = np.sum(overlap_mask)
+
+        if num_overlaps > 0 and self.verbose > 1:
+            print(
+                f"[!] Warning: {num_overlaps} cells are marked as inside multiple STL solids. \
+                Consider checking for overlapping geometries."
+            )
+
+    def _get_background_mask(self):
+        # Get a mask for the background (cells not inside any STL solid)
+        bg_mask = np.ones(self.Nx * self.Ny * self.Nz, dtype=bool)
+        for key in self.stl_solids.keys():
+            bg_mask &= ~self.grid[key].astype(int).astype(bool)
+        return bg_mask
 
     def _mark_cells_in_surface(self, key):
         # Modify the STL mask to account only for the surface
@@ -619,7 +763,7 @@ class GridFIT3D(PlotMixin):
         grad = np.sqrt(grad[:, 0] ** 2 + grad[:, 1] ** 2 + grad[:, 2] ** 2)
         mask = grad.astype(bool)  # TODO: subpixel smoothing
 
-        self.grid[key] = mask
+        return mask
 
     def read_stl(self, key):
         """
@@ -917,7 +1061,7 @@ class GridFIT3D(PlotMixin):
         self.dz = np.diff(self.z)
 
         if self.verbose > 1:
-            print(f"Refined grid: Nx = {self.Nx}, Ny ={self.Ny}, Nz = {self.Nz}")
+            print(f"    * Refined grid: Nx = {self.Nx}, Ny ={self.Ny}, Nz = {self.Nz}")
 
     def _assign_colors(self):
         """
