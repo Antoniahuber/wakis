@@ -2,7 +2,6 @@ import os
 import sys
 
 import numpy as np
-import pyvista as pv
 from scipy.constants import c, mu_0
 from tqdm import tqdm
 
@@ -14,21 +13,24 @@ import wakis
 flag_interactive = False  # Set to true to run plot tests
 
 
-class TestPML:
+class TestCPML:
+    """Test CPML implementation in SolverFIT3D. First test is a reflection test with a Gaussian packet, 
+    second test is a TFSF simulation of a cubic cavity. It benchmarks the impedance of the cavity against 
+    the current simulation results with CPML and TF/SF as reference."""
 
-    Zabs = np.array([3.70918157e+00, 6.24327704e+00, 2.37505475e+00, 
-        1.25332057e+01, 1.26041658e+01, 1.32189512e+01, 2.34514107e+01,
-        1.81851686e+01, 2.63185354e+01, 3.29766324e+01, 2.53151715e+01,
-        4.10586084e+01, 4.04805148e+01, 3.65304143e+01, 5.66050046e+01,
-        4.60470641e+01, 5.33373451e+01, 7.18603660e+01, 5.12700835e+01,
-        7.62807154e+01, 8.54294059e+01, 6.06983987e+01, 1.05571766e+02,
-        9.55982899e+01, 8.21124837e+01, 1.41489311e+02, 1.00572772e+02,
-        1.24308054e+02, 1.84763959e+02, 1.00557367e+02, 1.98961891e+02,
-        2.37588587e+02, 1.11515891e+02, 3.34521538e+02, 3.07724128e+02,
-        2.13976131e+02, 6.41756213e+02, 4.36689762e+02, 7.64286072e+02,
-        2.34490033e+03, 3.32803535e+03, 2.98342092e+03, 1.53151126e+03,
-        1.99728178e+02, 7.94048663e+02, 5.28907788e+02, 2.85998749e+02,
-        5.13154771e+02, 3.25610557e+02, 3.27775473e+02])
+    Zabs = np.array([4.03316939e+00, 6.40944766e+00, 2.19024949e+00, 1.21880622e+01,
+        1.23294143e+01, 1.27499956e+01, 2.28711435e+01, 1.76265519e+01,
+        2.55719674e+01, 3.21556326e+01, 2.44677336e+01, 4.00229861e+01,
+        3.94270613e+01, 3.54021504e+01, 5.52806839e+01, 4.47593783e+01,
+        5.19186925e+01, 7.02621271e+01, 4.97280949e+01, 7.45381000e+01,
+        8.35855430e+01, 5.88868691e+01, 1.03468478e+02, 9.35430277e+01,
+        8.00313672e+01, 1.39003244e+02, 9.83238193e+01, 1.21880354e+02,
+        1.81898026e+02, 9.80683283e+01, 1.95991840e+02, 2.34375712e+02,
+        1.08734007e+02, 3.30687682e+02, 3.04220947e+02, 2.10965682e+02,
+        6.36300123e+02, 4.32885394e+02, 7.58922268e+02, 2.33171035e+03,
+        3.31244177e+03, 2.97236055e+03, 1.52721811e+03, 1.95981363e+02,
+        7.93246456e+02, 5.28129975e+02, 2.83132056e+02, 5.14058281e+02,
+        3.23514165e+02, 3.25904302e+02])
     
     def test_reflection_gaussianPacket(self, use_gpu):
         print("\n---------- Initializing simulation ------------------")
@@ -227,7 +229,6 @@ class TestPML:
             use_gpu=use_gpu,
             verbose=2,
             n_pml=4,
-            source_type='TransmissionLine',
         )
 
         solver.wakesolve(wakelength=wakelength, save_J=False)

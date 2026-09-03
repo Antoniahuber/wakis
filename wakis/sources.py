@@ -92,14 +92,14 @@ class Beam:
                 np.abs(solver.grid.x - self.xsource).argmin(),
                 np.abs(solver.grid.y - self.ysource).argmin(),
             )
-            if solver.source_type.lower() == "soft":
+            if solver.source_type == "direct":
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
-            if solver.source_type.lower() == "transmissionline":
+            if solver.source_type == "tfsf":
                 solver.injection_done = False
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, solver.n_pml+1:-solver.n_pml-2, "z"])
                 solver.J_max = self.q * self.v / solver.tdx[self.ixs] / solver.tdy[self.iys] / (np.sqrt(2 * np.pi * self.sigmaz**2))
                 if solver.verbose>1:
-                    print(f"[!] TransmissionLine injection started at t={t:.3e}s, Jmax={solver.J_max:.3e} Cm/s")
+                    print(f"[!] Total-Field/Scattered-Field injection started at t={t:.3e}s, Jmax={solver.J_max:.3e} Cm/s")
                 self._calculate_injected_fields(solver, z_pos=solver.n_pml+1, side="low")
                 self._calculate_injected_fields(solver, z_pos=-solver.n_pml-2, side="high")
             self.is_first_update = False
@@ -119,16 +119,7 @@ class Beam:
             * np.exp(-((s - s0) ** 2) / (2 * self.sigmaz**2))
         )
         # update
-        if solver.source_type.lower() == "hard":
-            solver.J[self.ixs, self.iys, :, "z"] = (
-                self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
-            )
-        if solver.source_type.lower() == "soft":
-            Jprofile = self.q * self.v * profile / solver.dx[self.ixs] / solver.dy[self.iys]
-            dJ = Jprofile - self.Jold
-            solver.J[self.ixs, self.iys, :, "z"] += dJ
-            self.Jold = Jprofile
-        if solver.source_type.lower() == "transmissionline":
+        if solver.source_type == "tfsf":
             Jprofile = self.q * self.v * profile[solver.n_pml+1:-solver.n_pml-2] / solver.tdx[self.ixs] / solver.tdy[self.iys]
             dJ = Jprofile - self.Jold
             solver.J[self.ixs, self.iys, solver.n_pml+1:-solver.n_pml-2, "z"] += dJ
@@ -158,14 +149,9 @@ class Beam:
                     del self.E2D_x_low, self.E2D_y_low, self.H2D_x_low, self.H2D_y_low, self.E2D_x_high, self.E2D_y_high, self.H2D_x_high, self.H2D_y_high
                     del solver.tf_dxz, solver.tf_dyz, solver.tf_dtxz, solver.tf_dtyz
                     if solver.verbose> 1:
-                        print(f"[!] TransmissionLine injection done at t={t:.3e}s, switching to regular CPML updating scheme")
-        
-        elif solver.source_type.lower() == "hard":
-            solver.J[self.ixs, self.iys, :, "z"] = (
-                self.q * self.v * profile / solver.tdx[self.ixs] / solver.tdy[self.iys]
-            )
+                        print(f"[!] Total-Field/Scattered-Field injection done at t={t:.3e}s, switching to regular CPML updating scheme")
 
-        elif solver.source_type.lower() == "soft":
+        elif solver.source_type == "direct":
             Jprofile = self.q * self.v * profile / solver.tdx[self.ixs] / solver.tdy[self.iys]
             dJ = Jprofile - self.Jold
             solver.J[self.ixs, self.iys, :, "z"] += dJ

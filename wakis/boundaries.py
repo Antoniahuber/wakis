@@ -560,7 +560,7 @@ class BCsMixin:
         self.dtzx = self.itAz * self.ikapx * self.Dbc_z * -self.Px.transpose() * self.tLy
         self.dtzy = self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
 
-        if self.source_type.lower() == "transmissionline":
+        if self.source_type.lower() == "tfsf":
             self.tf_dxz = self.iAx * self.itkapz * self.Ly
             self.tf_dyz = self.iAy * self.itkapz * self.Lx
             self.tf_dtxz = self.itAx * self.ikapz * self.tLy
