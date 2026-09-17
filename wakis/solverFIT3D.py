@@ -311,8 +311,6 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
 
         # Fill PML BCs
         if self.activate_cpml:
-            if self.use_mpi:
-                raise NotImplementedError("CPML boundary conditions are not yet supported with MPI.")
             if verbose:
                 print("Filling CPML parameters...")
             self.one_step = self._one_step_cpml
@@ -690,7 +688,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            if self.source_type == "direct":
+            if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
@@ -719,7 +717,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            if self.source_type == "direct":
+            if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
             if self.verbose>1:
                     print("Starting time-stepping with CPML...")
@@ -782,6 +780,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.bc_high[2].lower() == "cpml":
             self.H.field_x[self.idx_z_high] -= self.dt * self.imu.field_x[self.idx_z_high] * - self.psiHb_x_high
             self.H.field_y[self.idx_z_high] -= self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high
+
+        if self.use_mpi:
+            self._mpi_communicate(self.H)
 
         # Include current computation
         if self.use_conductivity:
@@ -852,12 +853,15 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self.E.field_x[self.idx_z_high] += self.dt * self.ieps.field_x[self.idx_z_high] * - self.psiEb_x_high
             self.E.field_y[self.idx_z_high] += self.dt * self.ieps.field_y[self.idx_z_high] * self.psiEa_y_high
 
+        if self.use_mpi:
+            self._mpi_communicate(self.E)
+
     def _one_step_mkl(self):
         if self.step_0:
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            if self.source_type == "direct":
+            if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
@@ -886,7 +890,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            if self.source_type == "direct":
+            if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
         # Compute the curl of E fields using MKL dot products
@@ -947,6 +951,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.bc_high[2].lower() == "cpml":
             self.H.field_x[self.idx_z_high] -= self.dt * self.imu.field_x[self.idx_z_high] * - self.psiHb_x_high
             self.H.field_y[self.idx_z_high] -= self.dt * self.imu.field_y[self.idx_z_high] * self.psiHa_y_high
+
+        if self.use_mpi:
+            self._mpi_communicate(self.H)
 
         # Include current computation
         if self.use_conductivity:
@@ -1016,6 +1023,9 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         if self.bc_high[2].lower() == "cpml":
             self.E.field_x[self.idx_z_high] += self.dt * self.ieps.field_x[self.idx_z_high] * - self.psiEb_x_high
             self.E.field_y[self.idx_z_high] += self.dt * self.ieps.field_y[self.idx_z_high] * self.psiEa_y_high
+
+        if self.use_mpi:
+            self._mpi_communicate(self.E)
 
     def _mpi_initialize(self):
         self.comm = self.grid.comm

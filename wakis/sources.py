@@ -96,16 +96,19 @@ class Beam:
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
             if solver.source_type == "tfsf":
                 solver.injection_done = False
-                self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, solver.n_pml+1:-solver.n_pml-2, "z"])
+                self.j_start = solver.n_pml + 1 if not solver.use_mpi or solver.rank == 0 else 1
+                self.j_stop = solver.Nz - solver.n_pml - 2 if not solver.use_mpi or solver.rank == solver.size - 1 else solver.Nz - 1
+                self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, self.j_start:self.j_stop, "z"])
                 solver.J_max = self.q * self.v / solver.tdx[self.ixs] / solver.tdy[self.iys] / (np.sqrt(2 * np.pi * self.sigmaz**2))
                 if solver.verbose>1:
                     print(f"[!] Total-Field/Scattered-Field injection started at t={t:.3e}s, Jmax={solver.J_max:.3e} Cm/s")
-                self._calculate_injected_fields(solver, z_pos=solver.n_pml+1, side="low")
-                self._calculate_injected_fields(solver, z_pos=-solver.n_pml-2, side="high")
+                if not solver.use_mpi or solver.rank == 0:
+                    self._calculate_injected_fields(solver, z_pos=solver.n_pml+1, side="low")
+                if not solver.use_mpi or solver.rank == solver.size - 1:
+                    self._calculate_injected_fields(solver, z_pos=-solver.n_pml-2, side="high")
             self.is_first_update = False
             if hasattr(solver, "ZMIN"):  # support for MPI
-                zminIdx = np.abs(solver.z - solver.ZMIN).argmin()
-                self.zmin = solver.ZMIN + solver.dz[zminIdx] / 2
+                self.zmin = solver.ZMIN + solver.dz[0] / 2
             else:
                 self.zmin = solver.z.min()
         # reference shift
@@ -120,33 +123,41 @@ class Beam:
         )
         # update
         if solver.source_type == "tfsf":
-            Jprofile = self.q * self.v * profile[solver.n_pml+1:-solver.n_pml-2] / solver.tdx[self.ixs] / solver.tdy[self.iys]
+            Jprofile = self.q * self.v * profile[self.j_start:self.j_stop] / solver.tdx[self.ixs] / solver.tdy[self.iys]
             dJ = Jprofile - self.Jold
-            solver.J[self.ixs, self.iys, solver.n_pml+1:-solver.n_pml-2, "z"] += dJ
+            solver.J[self.ixs, self.iys, self.j_start:self.j_stop, "z"] += dJ
             self.Jold = Jprofile
             
             if solver.injection_done == False:
 
                 # Update the transverse E and H fields on the injection planes using the pre-calculated 2D templates
-                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.grid.z[solver.n_pml+1], t, side="low")
-                solver.E_trans[:,:, solver.n_pml+1, "x"] = Einj_x
-                solver.E_trans[:,:, solver.n_pml+1, "y"] = Einj_y
-                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[solver.n_pml+1], t+solver.dt/2, side="low")
-                solver.H_trans[:,:, solver.n_pml+1, "x"] = -Hinj_x
-                solver.H_trans[:,:, solver.n_pml+1, "y"] = -Hinj_y
+                if not solver.use_mpi or solver.rank == 0:
+                    Einj_x, Einj_y, _, _ = self.get_injected_2D_slice(solver, solver.grid.z[solver.n_pml+1], t, side="low")
+                    solver.E_trans[:,:, solver.n_pml+1, "x"] = Einj_x
+                    solver.E_trans[:,:, solver.n_pml+1, "y"] = Einj_y
+                    _, _, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[solver.n_pml+1], t+solver.dt/2, side="low")
+                    solver.H_trans[:,:, solver.n_pml+1, "x"] = -Hinj_x
+                    solver.H_trans[:,:, solver.n_pml+1, "y"] = -Hinj_y
 
-                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver,solver.grid.z[-solver.n_pml-1-2], t, side="high")
-                solver.E_trans[:,:, -solver.n_pml-2, "x"] = -Einj_x
-                solver.E_trans[:,:, -solver.n_pml-2, "y"] = -Einj_y
-                Einj_x, Einj_y, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[-solver.n_pml-2], t+solver.dt/2, side="high")
-                solver.H_trans[:,:, -solver.n_pml-2, "x"] = Hinj_x
-                solver.H_trans[:,:, -solver.n_pml-2, "y"] = Hinj_y
+                if not solver.use_mpi or solver.rank == solver.size - 1:
+                    Einj_x, Einj_y, _, _ = self.get_injected_2D_slice(solver, solver.grid.z[-solver.n_pml-3], t, side="high")
+                    solver.E_trans[:,:, -solver.n_pml-2, "x"] = -Einj_x
+                    solver.E_trans[:,:, -solver.n_pml-2, "y"] = -Einj_y
+                    _, _, Hinj_x, Hinj_y = self.get_injected_2D_slice(solver, solver.z[-solver.n_pml-2], t+solver.dt/2, side="high")
+                    solver.H_trans[:,:, -solver.n_pml-2, "x"] = Hinj_x
+                    solver.H_trans[:,:, -solver.n_pml-2, "y"] = Hinj_y
 
                 # Truncate the injection after the beam has passed the injection plane by 5 sigma
-                if s0-s[-solver.n_pml-2] > 5 * self.sigmaz:
+                high_plane = (solver.Z[-solver.n_pml-2] if solver.use_mpi
+                              else solver.z[-solver.n_pml-2])
+                if s0 - (high_plane - self.v * (t + solver.dt / 2)) > 5 * self.sigmaz:
                     solver.injection_done = True
                     del solver.E_trans, solver.H_trans
-                    del self.E2D_x_low, self.E2D_y_low, self.H2D_x_low, self.H2D_y_low, self.E2D_x_high, self.E2D_y_high, self.H2D_x_high, self.H2D_y_high
+                    for side in ("low", "high"):
+                        for component in ("E2D_x", "E2D_y", "H2D_x", "H2D_y"):
+                            name = f"{component}_{side}"
+                            if hasattr(self, name):
+                                delattr(self, name)
                     del solver.tf_dxz, solver.tf_dyz, solver.tf_dtxz, solver.tf_dtyz
                     if solver.verbose> 1:
                         print(f"[!] Total-Field/Scattered-Field injection done at t={t:.3e}s, switching to regular CPML updating scheme")

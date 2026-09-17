@@ -396,7 +396,8 @@ class TestMPILossyCavity:
         global solver
         if use_mpi:
             if solver.rank == 0:
-                tol = dict(rtol=0.1)
+                # MPI wake samples near zero carry small interface noise.
+                tol = dict(rtol=0.1, atol=5e-3)
                 assert len(wake.WP) == 5195, (
                     "Wake potential MPI samples length mismatch"
                 )

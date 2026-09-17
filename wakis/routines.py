@@ -357,9 +357,9 @@ class RoutinesMixin:
         self.wake.wakelength = wakelength
         self.ti = self.wake.ti
         self.v = self.wake.v
-        if self.use_mpi:  # E- should it be zmin, zmax instead?
+        if self.use_mpi:
             z = self.Z  # use global coords
-            dz = np.diff(self.Z)
+            dz = np.full(self.NZ, (self.ZMAX - self.ZMIN) / self.NZ)
             zz = slice(0, self.NZ)
         else:
             z = self.z
