@@ -385,15 +385,15 @@ class RoutinesMixin:
         if self.use_mpi:
             if self.rank == 0:
                 hf = h5py.File(self.Ez_file, "w")
-                hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+                hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
                 hf["dx"], hf["dy"], hf["dz"] = self.grid.dx, self.grid.dy, dz
                 hf["t"] = np.arange(0, Nt * self.dt, self.dt)
 
                 if save_J:
                     hfJ = h5py.File("Jz.h5", "w")
                     hfJ["x"], hfJ["y"], hfJ["z"] = (
-                        self.x[xx],
-                        self.y[yy],
+                        self.grid.x[xx],
+                        self.grid.y[yy],
                         z[zz],
                     )
                     hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
@@ -404,7 +404,7 @@ class RoutinesMixin:
                     hfJ["t"] = np.arange(0, Nt * self.dt, self.dt)
         else:
             hf = h5py.File(self.Ez_file, "w")
-            hf["x"], hf["y"], hf["z"] = self.x[xx], self.y[yy], z[zz]
+            hf["x"], hf["y"], hf["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
             hf["dx"], hf["dy"], hf["dz"] = (
                 self.grid.dx,
                 self.grid.dy,
@@ -414,7 +414,7 @@ class RoutinesMixin:
 
             if save_J:
                 hfJ = h5py.File("Jz.h5", "w")
-                hfJ["x"], hfJ["y"], hfJ["z"] = self.x[xx], self.y[yy], z[zz]
+                hfJ["x"], hfJ["y"], hfJ["z"] = self.grid.x[xx], self.grid.y[yy], z[zz]
                 hfJ["dx"], hfJ["dy"], hfJ["dz"] = (
                     self.grid.dx,
                     self.grid.dy,
