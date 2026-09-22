@@ -660,12 +660,6 @@ class BCsMixin:
             self.itAz * self.ikapy * self.Dbc_z * -self.Py.transpose() * self.tLx
         )
 
-        if self.source_type.lower() == "tfsf":
-            self.tf_dxz = self.iAx * self.itkapz * self.Ly
-            self.tf_dyz = self.iAy * self.itkapz * self.Lx
-            self.tf_dtxz = self.itAx * self.ikapz * self.tLy
-            self.tf_dtyz = self.itAy * self.ikapz * self.tLx
-
         del (
             self.iAx,
             self.iAy,
@@ -985,6 +979,7 @@ class BCsMixin:
             self.itA.field_y, shape=(N, N), dtype=self.dtype
         )
 
+        # In case of CPML the kappa stretching is not needed at the TFSF interface, since it is never inside the PML region.
         self.tf_dxz = iAx * Ly
         self.tf_dyz = iAy * Lx
         self.tf_dtxz = itAx * tLy
