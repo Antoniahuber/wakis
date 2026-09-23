@@ -542,7 +542,8 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.tf_dtyz = mkl_sparse_mat(self.tf_dtyz)
 
     def _move_tfsf_to_gpu(self):
-        self.imu.to_gpu()
+        if not self.activate_cpml:
+            self.imu.to_gpu()
         self.tf_dxz = gpu_sparse_mat(self.tf_dxz)
         self.tf_dyz = gpu_sparse_mat(self.tf_dyz)
         self.tf_dtxz = gpu_sparse_mat(self.tf_dtxz)
