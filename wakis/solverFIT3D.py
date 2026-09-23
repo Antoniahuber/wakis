@@ -542,6 +542,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
         self.tf_dtyz = mkl_sparse_mat(self.tf_dtyz)
 
     def _move_tfsf_to_gpu(self):
+        self.imu.to_gpu()
         self.tf_dxz = gpu_sparse_mat(self.tf_dxz)
         self.tf_dyz = gpu_sparse_mat(self.tf_dyz)
         self.tf_dtxz = gpu_sparse_mat(self.tf_dtxz)
@@ -1339,7 +1340,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            if self.source_type == "direct":
+            if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(
@@ -1380,7 +1381,7 @@ class SolverFIT3D(PlotMixin, RoutinesMixin, BCsMixin):
             self._set_ghosts_to_0()
             self.step_0 = False
             self._attrcleanup()
-            if self.source_type == "direct":
+            if self.source_type == "direct" or self.use_conductivity:
                 self.J_old = np.zeros_like(self.J.toarray())
 
         self.H.fromarray(

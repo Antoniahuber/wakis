@@ -96,9 +96,14 @@ class Beam:
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, :, "z"])
             if solver.source_type == "tfsf":
                 solver.injection_done = False
-                self.j_start = solver.n_pml + 1 if (not solver.use_mpi or solver.rank == 0) and (solver.activate_cpml or solver.activate_pml) else 1
-                self.j_stop = solver.Nz - solver.n_pml - 2 if (not solver.use_mpi or solver.rank == solver.size - 1) and (solver.activate_cpml or solver.activate_pml) else solver.Nz - 2
+                self.j_start = solver.n_pml + 1 if (not solver.use_mpi or solver.rank == 0) and (solver.bc_low[2].lower() == "cpml" or solver.bc_low[2].lower() == "pml") else 1
+                self.j_stop = solver.Nz - solver.n_pml - 2 if (not solver.use_mpi or solver.rank == solver.size - 1) and (solver.bc_high[2].lower() == "cpml" or solver.bc_high[2].lower() == "pml") else solver.Nz - 2
                 self.Jold = np.zeros_like(solver.J[self.ixs, self.iys, self.j_start:self.j_stop, "z"])
+                if solver.use_mpi:
+                    j_stop_global = solver.NZ - solver.n_pml - 2 if (solver.activate_cpml or solver.activate_pml) else solver.NZ - 2
+                    self.high_plane = solver.Z[j_stop_global]
+                else:
+                    self.high_plane = solver.z[self.j_stop]
                 solver.J_max = self.q * self.v / solver.tdx[self.ixs] / solver.tdy[self.iys] / (np.sqrt(2 * np.pi * self.sigmaz**2))
                 if solver.verbose>1:
                     print(f"[!] Total-Field/Scattered-Field injection started at t={t:.3e}s, Jmax={solver.J_max:.3e} Cm/s")
@@ -148,9 +153,7 @@ class Beam:
                     solver.H_trans[:,:, self.j_stop, "y"] = Hinj_y
 
                 # Truncate the injection after the beam has passed the injection plane by 5 sigma
-                high_plane = (solver.Z[self.j_stop] if solver.use_mpi
-                              else solver.z[self.j_stop])
-                if s0 - (high_plane - self.v * (t + solver.dt / 2)) > 5 * self.sigmaz:
+                if s0 - (self.high_plane - self.v * (t + solver.dt / 2)) > 5 * self.sigmaz:
                     solver.injection_done = True
                     del solver.E_trans, solver.H_trans
                     for side in ("low", "high"):
