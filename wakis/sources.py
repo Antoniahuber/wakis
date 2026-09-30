@@ -493,7 +493,7 @@ class PlaneWave:
             self.is_first_update = False
 
         if t <= self.tmax:
-            solver.H[self.xs, self.ys, self.zs, "y"] = -self.amplitude * np.cos(
+            solver.H[self.xs, self.ys, self.zs, "y"] = self.amplitude * np.cos(
                 self.w * t + self.phase
             )
             solver.E[self.xs, self.ys, self.zs, "x"] = (
@@ -666,7 +666,7 @@ class WavePacket:
 
         # Update
         solver.H[self.xs, self.ys, self.zs, "y"] = (
-            -self.amplitude * np.cos(self.w * t + self.phase) * gaussxy * gausst
+            self.amplitude * np.cos(self.w * t + self.phase) * gaussxy * gausst
         )
         solver.E[self.xs, self.ys, self.zs, "x"] = (
             self.amplitude
